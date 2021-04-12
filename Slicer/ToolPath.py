@@ -29,6 +29,15 @@ class ToolPath(object):
         self._path1 = path1
         self._path2 = path2
 
+    def create_constant_speed_toolpath(self, feed_rate_mode):
+        pass
+
+    def create_constant_ratio_toolpath(self, feed_rate_mode):
+        pass
+
+    def create_adaptive_ratio_toolpath(self, feed_rate_mode):
+        pass
+
     def plot_tool_paths(self):
         """PLots the two gantry tool paths as 2d paths on the x-y plane."""
         x1 = np.zeros(len(self._path1))

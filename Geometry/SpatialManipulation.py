@@ -130,10 +130,10 @@ class PointManip(object):
             min_dist = 1000000000
             y_weight = 4
             for p in points:
-                # dist = np.sqrt((curr_point - p)**2)
+                # Use a weighted distance that places more emphasis on the x_distance, this helps with the trailing
+                # edge, highly cambered profiles will still be incorrect
                 dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + (y_weight * (curr_point['y'] - p['y'])) ** 2)
                 if dist < min_dist and p not in sorted_points:
-                    # print('dist: %s' % dist)
                     min_dist = dist
                     closest_point = p
                     # take care of the trailing edge with overlapping x coords
@@ -158,10 +158,8 @@ class PointManip(object):
                                 closest_point = pon
                             trailing_edge_um = False
 
-                # print('Adding p:%s after p0:%s with a dist of: %s' % (closest_point, sorted_points[-1], min_dist))
                 sorted_points.append(closest_point)
 
-        # print('points: %s' % sorted_points)
         return sorted_points
 
     @staticmethod
@@ -179,18 +177,10 @@ class PointManip(object):
         num_step = 0
         while True:
             if num_step > max_step:
-                if debug:
-                    # x = np.array([origin['x'], check_point['x']])
-                    # y = np.array([origin['y'], check_point['y']])
-                    # print('1x: %s, y: %s\r\n' % (x,y))
-                    # plt.plot(x, y)
-                    # plt.draw()
-                    pass
                 return None
 
             check_point['x'] = check_point['x'] + step * np.cos(direction)
             check_point['y'] = check_point['y'] + step * np.sin(direction)
-            # print('Check Point: %s' % check_point)
 
             for p in points:
                 dist = np.sqrt(np.sum((p - check_point) ** 2))
@@ -201,10 +191,7 @@ class PointManip(object):
                     if debug:
                         x = np.array([origin['x'], check_point['x']])
                         y = np.array([origin['y'], check_point['y']])
-                        # print('2x: %s, y: %s\r\n' % (x,y))
                         plt.plot(x, y)
                         plt.draw()
                     return p
             num_step += 1
-
-            # print('err: %s, prev_err: %s'%(err, prev_err))
