@@ -245,7 +245,7 @@ class Spline(object):
         :return:
         """
 
-        dt = 1E-2
+        dt = 1
         t = 0 + dt
         length = 0
 
@@ -260,11 +260,10 @@ class Spline(object):
             x_m = self._get_x(pos_m, indx_m)
             y_m = self._get_y(pos_m, indx_m)
             z_m = self._get_z(pos_m, indx_m)
-            length += np.sqrt((x-x_m)**2 + (y-y_m)**2 + (z-z_m)**2)
+            length += np.sqrt((x - x_m) ** 2 + (y - y_m) ** 2 + (z - z_m) ** 2)
             t += dt
 
         return length
-
 
     def get_point_from_distance(self, dist, t=1E-1, dt=1E-1, start=0):
         """
@@ -281,8 +280,8 @@ class Spline(object):
         length = start
 
         while length <= dist and curr_seg < self.segments:
-            self.logger.info('\tcurrently at distance %smm out of %smm with segment: %s out of %s' %
-                             (length, dist, curr_seg, self.segments))
+            # self.logger.info('\tcurrently at distance %smm out of %smm with segment: %s out of %s' %
+            #                  (length, dist, curr_seg, self.segments))
             pos = curr_seg
             pos_m = curr_seg - dt
             indx = self._get_segment(pos)
@@ -293,11 +292,11 @@ class Spline(object):
             x_m = self._get_x(pos_m, indx_m)
             y_m = self._get_y(pos_m, indx_m)
             z_m = self._get_z(pos_m, indx_m)
-            dlen = np.sqrt((x-x_m)**2 + (y-y_m)**2 + (z-z_m)**2)
+            dlen = np.sqrt((x - x_m) ** 2 + (y - y_m) ** 2 + (z - z_m) ** 2)
             length += dlen
             curr_seg += dt
 
-        point = Point(x,y,z)
+        point = Point(x, y, z)
 
         return point, curr_seg, length
 
@@ -330,10 +329,10 @@ class Spline(object):
     def _get_x(self, pos, indx):
         return self.ax[indx] * pos ** 3 + self.bx[indx] * pos ** 2 + self.cx[indx] * pos + self.dx[indx]
 
-    def _get_y(self,pos, indx):
+    def _get_y(self, pos, indx):
         return self.ay[indx] * pos ** 3 + self.by[indx] * pos ** 2 + self.cy[indx] * pos + self.dy[indx]
 
-    def _get_z(self,pos, indx):
+    def _get_z(self, pos, indx):
         return self.az[indx] * pos ** 3 + self.bz[indx] * pos ** 2 + self.cz[indx] * pos + self.dz[indx]
 
     @staticmethod
@@ -378,3 +377,43 @@ class Spline(object):
             return self.segments
 
         raise AttributeError('T(%s) out of range for the given intervals(%s)' % (t, self.segments))
+
+
+class GeometricFunctions(object):
+
+    @staticmethod
+    def path_length(path):
+        length = 0
+        if isinstance(path, list):
+            for idx in range(0, len(path) - 1):
+                diff = path[idx + 1] - path[idx]
+                length += np.sqrt(diff ** 2)
+        else:
+            raise NotImplementedError('Error: path_length is currently only implemented for a list of points defining'
+                                      ' the path')
+        return length
+
+    @staticmethod
+    def get_point_along_path(path, distance):
+        length = 0
+        index = 0
+        if isinstance(path, list):
+            for idx in range(0, len(path) - 1):
+                length += np.sqrt((path[idx + 1] - path[idx]) ** 2)
+                if distance <= length:
+                    index = idx + 1
+                    break
+            prev_length = length - np.sqrt((path[index] - path[index - 1]) ** 2)
+            diff = length - prev_length
+            if diff == 0:
+                return path[-1]
+            ratio = (distance - prev_length) / diff
+            x = (path[index]['x'] - path[index - 1]['x']) * ratio + path[index - 1]['x']
+            y = (path[index]['y'] - path[index - 1]['y']) * ratio + path[index - 1]['y']
+            z = (path[index]['z'] - path[index - 1]['z']) * ratio + path[index - 1]['z']
+            point = Point(x, y, z)
+
+        else:
+            raise NotImplementedError('Error: get_point_along_path currently only implemented for a list'
+                                      ' of points defining the path')
+        return point

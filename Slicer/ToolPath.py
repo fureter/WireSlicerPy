@@ -1,4 +1,5 @@
 import logging
+import timeit
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 from Geometry.PrimativeGeometry import Spline
 from Geometry.PrimativeGeometry import Point
 from Geometry.PrimativeGeometry import Line
+from Geometry.PrimativeGeometry import GeometricFunctions
 from Slicer.WireCutter import WireCutter
 from GCode.CommandLibrary import GCodeCommands
 
@@ -38,16 +40,22 @@ class ToolPath(object):
 
     def plot_tool_paths(self):
         """PLots the two gantry tool paths as 2d paths on the x-y plane."""
-        x1 = np.zeros(len(self._path1))
-        x2 = np.zeros(len(self._path1))
-        y1 = np.zeros(len(self._path1))
-        y2 = np.zeros(len(self._path1))
+        len_path1 = len(self._path1)
+        len_path2 = len(self._path2)
 
-        for i in range(0, len(self._path1)):
+        x1 = np.zeros(len_path1)
+        x2 = np.zeros(len_path2)
+        y1 = np.zeros(len_path1)
+        y2 = np.zeros(len_path2)
+
+        for i in range(0, len_path1):
             x1[i] = self._path1[i]['x']
-            x2[i] = self._path2[i]['x']
             y1[i] = self._path1[i]['y']
+
+        for i in range(0, len_path2):
+            x2[i] = self._path2[i]['x']
             y2[i] = self._path2[i]['y']
+
 
         plt.plot(x1, y1)
         plt.plot(x2, y2)
@@ -145,16 +153,74 @@ class ToolPath(object):
         return max_dist
 
     def create_path_with_uniform_point_distances(self):
+        start = timeit.default_timer()
         min_dist = self._shortest_distance_in_tool_path()
+        min_dist = 1
+        self.logger.info('Took %ss to find the minimum spacing in the toolpath' % (timeit.default_timer() - start))
+        self.logger.info('Minimum distance in either path is: %smm' % min_dist)
+
+        self.logger.info('Getting Lengths of each path')
+        start = timeit.default_timer()
+        length_path1 = GeometricFunctions.path_length(self._path1)
+        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
+        start = timeit.default_timer()
+        length_path2 = GeometricFunctions.path_length(self._path2)
+
+        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
+
+        self.logger.info('Path 1 Length: %smm' % length_path1)
+        self.logger.info('Path 2 Length: %smm' % length_path2)
+
+        path1 = list()
+        path2 = list()
+
+        path1.append(self._path1[0])
+        path2.append(self._path2[0])
+
+        curr_dist = 0
+        idx = 0
+        length = 0
+        start = timeit.default_timer()
+        while curr_dist < length_path1:
+            curr_dist += min_dist
+            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist)
+            path1.append(point)
+        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
+
+        curr_dist = 0
+        idx = 0
+        length = 0
+        start = timeit.default_timer()
+        while curr_dist < length_path2:
+            curr_dist += min_dist
+            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist)
+            path2.append(point)
+        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
+
+        return (path1, path2)
+
+
+    def create_path_with_uniform_point_distances_splines(self):
+        start = timeit.default_timer()
+        min_dist = self._shortest_distance_in_tool_path()
+        self.logger.info('Took %ss to find the minimum spacing in the toolpath' % (timeit.default_timer() - start))
         min_dist = 1
         self.logger.info('Minimum distance in either path is: %smm' % min_dist)
 
+        start = timeit.default_timer()
         spline1 = Spline(self._path1)
         spline2 = Spline(self._path2)
+        self.logger.info('Took %ss to create splines for path 1 and path 2' % (timeit.default_timer() - start))
 
         self.logger.info('Getting Lengths of each path')
+
+        start = timeit.default_timer()
         length_spline1 = spline1.get_spline_length()
+        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
+
+        start = timeit.default_timer()
         length_spline2 = spline2.get_spline_length()
+        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
         self.logger.info('Path 1 Length: %smm' % length_spline1)
         self.logger.info('Path 2 Length: %smm' % length_spline2)
 
@@ -171,19 +237,67 @@ class ToolPath(object):
                          'steps until reaching %smm total length' % (min_dist, length_spline1))
         t = 1E-1
         length = 0
+        start = timeit.default_timer()
         while curr_dist < length_spline1:
-            self.logger.info('Currently at %smm out of %smm for path 1' % (curr_dist, length_spline1))
             curr_dist += min_dist
             point, t, length = spline1.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
             path1.append(point)
 
+        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
+
         t = 1E-1
         length = 0
         curr_dist = 0
+        start = timeit.default_timer()
         while curr_dist < length_spline2:
-            self.logger.info('Currently at %smm out of %smm for path 1' % (curr_dist, length_spline2))
             curr_dist += min_dist
             point, t, length = spline2.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
             path2.append(point)
+
+        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
+
+        return (path1, path2)
+
+    def create_path_with_uniform_ratio_spacing(self):
+        self.logger.info('Getting Lengths of each path')
+        start = timeit.default_timer()
+        length_path1 = GeometricFunctions.path_length(self._path1)
+        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
+        start = timeit.default_timer()
+        length_path2 = GeometricFunctions.path_length(self._path2)
+
+        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
+
+        self.logger.info('Path 1 Length: %smm' % length_path1)
+        self.logger.info('Path 2 Length: %smm' % length_path2)
+
+        path1 = list()
+        path2 = list()
+
+        path1.append(self._path1[0])
+        path2.append(self._path2[0])
+
+        curr_dist = 0
+        idx = 0
+        length = 0
+        start = timeit.default_timer()
+        while curr_dist < length_path1:
+            curr_dist += length_path1/100
+            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist)
+            path1.append(point)
+        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
+
+        curr_dist = 0
+        idx = 0
+        length = 0
+        start = timeit.default_timer()
+        while curr_dist < length_path2:
+            curr_dist += length_path2/100
+            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist)
+            path2.append(point)
+        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
+
+        self.logger.info('Length of XY Move List: %s' % len(path1))
+        self.logger.info('Length of UZ Move List: %s' % len(path2))
 
         return (path1, path2)
