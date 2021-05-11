@@ -1,12 +1,11 @@
-from GCode.CommandLibrary import GCodeCommands
-
 class WireCutter(object):
     """
 
     """
 
     def __init__(self, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
-                 feed_rate_mode=GCodeCommands.FeedRate.UNITS_PER_MINUTE, axis_def='X%s Y%s U%s Z%s'):
+                 start_depth=None, feed_rate_mode=0,#GCodeCommands.FeedRate.UNITS_PER_MINUTE,
+                 axis_def='X%s Y%s U%s Z%s'):
         """
 
         :param wire_length:
@@ -22,6 +21,7 @@ class WireCutter(object):
         self.min_speed = min_speed
         self.release_height = release_height
         self.start_height = start_height
+        self.start_depth = start_depth
         self.feed_rate_mode = feed_rate_mode
         self.start_up_gcode = None
         self.axis_def = axis_def

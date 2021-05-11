@@ -1,5 +1,6 @@
 import os
 import csv
+import logging
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -55,7 +56,7 @@ class Point(object):
             return Point(self._coord[0] - other['x'], self._coord[1] - other['y'], self._coord[2] - other['z'])
 
     def __pow__(self, power, modulo=None):
-        return self._coord[0] ** 2 + self._coord[1] ** 2 + self._coord[2] ** 2
+        return self._coord[0] ** power + self._coord[1] ** power + self._coord[2] ** power
 
     def __repr__(self):
         return '(%s, %s, %s)' % (self._coord[0], self._coord[1], self._coord[2],)
@@ -144,12 +145,16 @@ class Plane(object):
 
 # ----------------------------------------------------------------------------------------------------------------------
 class Spline(object):
-    def __init__(self, points, closed_loop=True):
+    def __init__(self, points, closed_loop=True, logger=None):
+        if logger is None:
+            logger = logging.getLogger()
+        self.logger = logger
 
         self._points = points
         if closed_loop:
+            # If the spline is a closed loop, duplicate the initial point and place it at the end of the loop. This
+            # allows the cubic spline to have a segment connecting the last point and the inital point.
             self._points = np.append(self._points, points[0])
-            print(self._points)
         self._loop = closed_loop
         self.segments = len(self._points) - 1
 
@@ -171,7 +176,7 @@ class Spline(object):
         self._calculate_coefficents()
 
     def _calculate_coefficents(self):
-        # loop through the 3 dimensions to get coefficents for x, y, and z
+        # loop through the 3 dimensions to get coefficients for x, y, and z
         for i in range(0, 3):
             num_points = len(self._points)
             mat = np.zeros((4 * self.segments, 4 * self.segments))
@@ -210,46 +215,12 @@ class Spline(object):
                 var[inx] = self._points[n][i]
                 var[inx + 1] = self._points[n + 1][i]
 
-            # if self._loop:
-            #     mat[2,4*self.segments-4] = (num_points) ** 3
-            #     mat[2,4*self.segments-3] = (num_points) ** 2
-            #     mat[2,4*self.segments-2] = (num_points) ** 1
-            #     mat[2,4*self.segments-1] = 1
-            #
-            #     mat[3, 4 * self.segments - 4] = (1) ** 3
-            #     mat[3, 4 * self.segments - 3] = (11) ** 2
-            #     mat[3, 4 * self.segments - 2] = (1) ** 1
-            #     mat[3, 4 * self.segments - 1] = 1
-            #
-            #     mat[4 * self.segments - 4, 4 * self.segments - 4] = 3*(num_points) ** 2
-            #     mat[4 * self.segments - 4, 4 * self.segments - 3] = 2*(num_points) ** 1
-            #     mat[4 * self.segments - 4, 4 * self.segments - 2] = 1
-            #
-            #     mat[4 * self.segments - 4, 0] = 3 * (num_points) ** 2
-            #     mat[4 * self.segments - 4, 1] = 2 * (num_points) ** 1
-            #     mat[4 * self.segments - 4, 2] = 1
-            # else:
             mat[2, 0] = 6
             mat[2, 1] = 2
 
             mat[3, 4 * self.segments - 3] = 6 * num_points
             mat[3, 4 * self.segments - 2] = 2
-
-            print('Equations: %s, Intervals: %s, Needed Eqns: %s\r\n' % (cnt, self.segments, (4 * self.segments)))
-            print('Len Var: %s, Size Mat: %s\r\n' % (len(var), mat.shape))
-            i_coeff = np.zeros(4 * self.segments)
-            self._write_numerical_to_csv(mat=mat, i_coeff=i_coeff, var=var,
-                                         directory=r'C:\Users\FurEt\PycharmProjects\WireSlicerPy',
-                                         file_name=r'debug_spline_%s.csv' % ({0: 'x', 1: 'y', 2: 'z'}[i]))
-
-            # print('mat: %s' % mat)
-            # print('var: %s' % var)
             i_coeff = np.linalg.solve(mat, var)
-
-            self._write_numerical_to_csv(mat=mat, i_coeff=i_coeff, var=var,
-                                         directory=r'C:\Users\FurEt\PycharmProjects\WireSlicerPy',
-                                         file_name=r'debug_spline_%s.csv' % ({0: 'x', 1: 'y', 2: 'z'}[i]))
-            # print('coeff: %s' % i_coeff)
 
             for n in range(0, self.segments):
                 if i == 0:
@@ -268,7 +239,69 @@ class Spline(object):
                     self.cz[n] = i_coeff[4 * n + 2]
                     self.dz[n] = i_coeff[4 * n + 3]
 
-    def get_x_y_z(self, resolution=10):
+    def get_spline_length(self):
+        """
+
+        :return:
+        """
+
+        dt = 1E-2
+        t = 0 + dt
+        length = 0
+
+        while t < self.segments:
+            pos = t
+            pos_m = t - dt
+            indx = self._get_segment(pos)
+            indx_m = self._get_segment(pos_m)
+            x = self._get_x(pos, indx)
+            y = self._get_y(pos, indx)
+            z = self._get_z(pos, indx)
+            x_m = self._get_x(pos_m, indx_m)
+            y_m = self._get_y(pos_m, indx_m)
+            z_m = self._get_z(pos_m, indx_m)
+            length += np.sqrt((x-x_m)**2 + (y-y_m)**2 + (z-z_m)**2)
+            t += dt
+
+        return length
+
+
+    def get_point_from_distance(self, dist, t=1E-1, dt=1E-1, start=0):
+        """
+
+        :param dist:
+        :return:
+        """
+        x = 0
+        y = 0
+        z = 0
+        curr_seg = t
+        if t < dt:
+            curr_seg = dt
+        length = start
+
+        while length <= dist and curr_seg < self.segments:
+            self.logger.info('\tcurrently at distance %smm out of %smm with segment: %s out of %s' %
+                             (length, dist, curr_seg, self.segments))
+            pos = curr_seg
+            pos_m = curr_seg - dt
+            indx = self._get_segment(pos)
+            indx_m = self._get_segment(pos_m)
+            x = self._get_x(pos, indx)
+            y = self._get_y(pos, indx)
+            z = self._get_z(pos, indx)
+            x_m = self._get_x(pos_m, indx_m)
+            y_m = self._get_y(pos_m, indx_m)
+            z_m = self._get_z(pos_m, indx_m)
+            dlen = np.sqrt((x-x_m)**2 + (y-y_m)**2 + (z-z_m)**2)
+            length += dlen
+            curr_seg += dt
+
+        point = Point(x,y,z)
+
+        return point, curr_seg, length
+
+    def get_x_y_z(self, resolution=10, fixed_distance=None):
         """
 
         :param resolution:
@@ -282,9 +315,9 @@ class Spline(object):
             pos = i / float(resolution)
             indx = self._get_segment(pos)
             pos = pos + 1
-            x[i] = self.ax[indx] * pos ** 3 + self.bx[indx] * pos ** 2 + self.cx[indx] * pos + self.dx[indx]
-            y[i] = self.ay[indx] * pos ** 3 + self.by[indx] * pos ** 2 + self.cy[indx] * pos + self.dy[indx]
-            z[i] = self.az[indx] * pos ** 3 + self.bz[indx] * pos ** 2 + self.cz[indx] * pos + self.dz[indx]
+            x[i] = self._get_x(pos, indx)
+            y[i] = self._get_y(pos, indx)
+            z[i] = self._get_z(pos, indx)
 
         return x, y, z
 
@@ -293,6 +326,15 @@ class Spline(object):
 
         plt.plot(x, y)
         plt.draw()
+
+    def _get_x(self, pos, indx):
+        return self.ax[indx] * pos ** 3 + self.bx[indx] * pos ** 2 + self.cx[indx] * pos + self.dx[indx]
+
+    def _get_y(self,pos, indx):
+        return self.ay[indx] * pos ** 3 + self.by[indx] * pos ** 2 + self.cy[indx] * pos + self.dy[indx]
+
+    def _get_z(self,pos, indx):
+        return self.az[indx] * pos ** 3 + self.bz[indx] * pos ** 2 + self.cz[indx] * pos + self.dz[indx]
 
     @staticmethod
     def _write_numerical_to_csv(mat, var, i_coeff, file_name, directory):
@@ -335,4 +377,4 @@ class Spline(object):
         if t == self.segments + 1:
             return self.segments
 
-        raise AttributeError('T(%s) out of range for the given intervals(%s' % (t, self.segments))
+        raise AttributeError('T(%s) out of range for the given intervals(%s)' % (t, self.segments))

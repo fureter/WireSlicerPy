@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -5,6 +7,7 @@ from Geometry.PrimativeGeometry import Spline
 from Geometry.PrimativeGeometry import Point
 from Geometry.PrimativeGeometry import Line
 from Slicer.WireCutter import WireCutter
+from GCode.CommandLibrary import GCodeCommands
 
 
 class ToolPath(object):
@@ -18,7 +21,7 @@ class ToolPath(object):
 
     """
 
-    def __init__(self, path1, path2):
+    def __init__(self, path1, path2, logger=None):
         """Constructor for tool path, should not be directly called, use create_* functions to generate tool paths.
 
         :param path1: Gantry 1 path.
@@ -29,14 +32,9 @@ class ToolPath(object):
         self._path1 = path1
         self._path2 = path2
 
-    def create_constant_speed_toolpath(self, feed_rate_mode):
-        pass
-
-    def create_constant_ratio_toolpath(self, feed_rate_mode):
-        pass
-
-    def create_adaptive_ratio_toolpath(self, feed_rate_mode):
-        pass
+        if logger is None:
+            logger = logging.getLogger()
+        self.logger = logger
 
     def plot_tool_paths(self):
         """PLots the two gantry tool paths as 2d paths on the x-y plane."""
@@ -53,6 +51,12 @@ class ToolPath(object):
 
         plt.plot(x1, y1)
         plt.plot(x2, y2)
+        plt.scatter(x1, y1)
+        plt.scatter(x2, y2)
+
+    @staticmethod
+    def create_tool_path_from_two_gantry_paths(path1, path2):
+        return ToolPath(path1, path2)
 
     @staticmethod
     def create_tool_path_from_two_splines(spline1, spline2, wire_cutter):
@@ -76,7 +80,6 @@ class ToolPath(object):
 
         # interpolate the spline with less data points to be the same length as the other
         if len_x1 > len_x2:
-            print(len_x1, len_x2)
             t = list(range(0, len_x1))
             t_base = list(range(0, len_x2))
             scale = t[-1] / t_base[-1]
@@ -112,3 +115,75 @@ class ToolPath(object):
             path2.append(gantry2_point)
 
         return ToolPath(path1, path2)
+
+    def _shortest_distance_in_tool_path(self):
+        min_dist = 99999999
+        for i in range(0, len(self._path1)-1):
+            dist = np.sqrt((self._path1[i+1] - self._path1[i])**2)
+            if dist < min_dist:
+                min_dist = dist
+
+        for i in range(0, len(self._path2)-1):
+            dist = np.sqrt((self._path2[i+1] - self._path2[i])**2)
+            if dist < min_dist:
+                min_dist = dist
+
+        return min_dist
+
+    def _longest_distance_in_tool_path(self):
+        max_dist = 0
+        for i in range(0, len(self._path1)-1):
+            dist = np.sqrt((self._path1[i+1] - self._path1[i])**2)
+            if dist > max_dist:
+                max_dist = dist
+
+        for i in range(0, len(self._path2)-1):
+            dist = np.sqrt((self._path2[i+1] - self._path2[i])**2)
+            if dist > max_dist:
+                max_dist = dist
+
+        return max_dist
+
+    def create_path_with_uniform_point_distances(self):
+        min_dist = self._shortest_distance_in_tool_path()
+        min_dist = 1
+        self.logger.info('Minimum distance in either path is: %smm' % min_dist)
+
+        spline1 = Spline(self._path1)
+        spline2 = Spline(self._path2)
+
+        self.logger.info('Getting Lengths of each path')
+        length_spline1 = spline1.get_spline_length()
+        length_spline2 = spline2.get_spline_length()
+        self.logger.info('Path 1 Length: %smm' % length_spline1)
+        self.logger.info('Path 2 Length: %smm' % length_spline2)
+
+        path1 = list()
+        path2 = list()
+
+        curr_dist = 0
+        point1, _, _ = spline1.get_point_from_distance(curr_dist)
+        point2, _, _ = spline2.get_point_from_distance(curr_dist)
+        path1.append(point1)
+        path2.append(point2)
+
+        self.logger.info('Creating new path by stepping along previous path in %smm '
+                         'steps until reaching %smm total length' % (min_dist, length_spline1))
+        t = 1E-1
+        length = 0
+        while curr_dist < length_spline1:
+            self.logger.info('Currently at %smm out of %smm for path 1' % (curr_dist, length_spline1))
+            curr_dist += min_dist
+            point, t, length = spline1.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
+            path1.append(point)
+
+        t = 1E-1
+        length = 0
+        curr_dist = 0
+        while curr_dist < length_spline2:
+            self.logger.info('Currently at %smm out of %smm for path 1' % (curr_dist, length_spline2))
+            curr_dist += min_dist
+            point, t, length = spline2.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
+            path2.append(point)
+
+        return (path1, path2)

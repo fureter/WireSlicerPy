@@ -12,14 +12,10 @@ class PointManip(object):
 
         @staticmethod
         def translate(points, vector):
-            print('-' * 80)
             for point in points:
-                print('before translate: %s' % point)
                 point['x'] += vector[0]
                 point['y'] += vector[1]
                 point['z'] += vector[2]
-                print('After translate: %s' % point)
-            print('-' * 80)
 
         @staticmethod
         def rotate(points, vector):
@@ -60,8 +56,6 @@ class PointManip(object):
             for point in points:
                 tmp = np.array([point['x'], point['y'], point['z'], 1])
                 res = transform_mat.dot(tmp)
-                print('point: %s' % point)
-                print('res: %s' % res)
                 point['x'] = res[0]
                 point['y'] = res[1]
                 point['z'] = res[2]
@@ -83,19 +77,15 @@ class PointManip(object):
         center[1] = center[1] / len(points)
         center[2] = center[2] / len(points)
         center = Point(center[0], center[1], center[2])
-        print('Center: %s' % center)
 
         start_polar = timeit.default_timer()
         sorted_points = PointManip._loop_dist_sort(points)
         stop_polar = timeit.default_timer()
 
-        print('polar time: %f' % (stop_polar - start_polar))
-
         return np.array(sorted_points)
 
     @staticmethod
     def _polar_sort(points, center):
-        print(center)
         polar_coords = dict()
         keys = list()
         sorted_points = list()
@@ -150,9 +140,6 @@ class PointManip(object):
 
                             dist_curr = abs(ang_c_l - ang_p_l)
                             dist_alt = abs(ang_pon_l - ang_p_l)
-
-                            print('ang last: %s\nang curr: %s\rang alt:%s\r' % (ang_p_l, ang_c_l, ang_pon_l))
-                            print('dist_curr: %s, dist_alt: %s' % (dist_curr, dist_alt))
 
                             if dist_alt < dist_curr:
                                 closest_point = pon

@@ -9,6 +9,7 @@ from Slicer.ToolPath import ToolPath
 from Geometry.Parser import Dat
 from Geometry.PrimativeGeometry import Spline
 from Geometry.SpatialManipulation import PointManip
+from GCode.Generator import GCodeGenerator
 
 
 def main():
@@ -27,8 +28,8 @@ def main():
     goe430 = Dat(filepath=file_path)
 
     e66 = Dat(filepath=e66_file_path)
-    logger.info('Printing e66 coordinates')
-    e66.log(logger)
+    #logger.info('Printing e66 coordinates')
+    #e66.log(logger)
     e66_reorder = PointManip.reorder_2d_cw(e66.get_data())
 
     PointManip.Transform.scale(e66_reorder, np.array([100, 100, 1]), np.array([0.0, 0, 0]))
@@ -41,14 +42,14 @@ def main():
     # goe614.plot_points2D()
 
     re_odr_pnts = PointManip.reorder_2d_cw(goe430.get_data())
-    print('before translate: %s' % re_odr_pnts)
+    #print('before translate: %s' % re_odr_pnts)
     PointManip.Transform.scale(re_odr_pnts, np.array([140, 140, 1]), np.array([0.0, 0, 0]))
     PointManip.Transform.translate(re_odr_pnts, np.array([0, 0, 250]))
-    print('after translate: %s ' % re_odr_pnts)
+    #print('after translate: %s ' % re_odr_pnts)
     goe430_spline = Spline(re_odr_pnts, closed_loop=True)
 
-    wire_cutter = WireCutter(wire_length=2000.0, max_height=300.0, max_speed=25.0, min_speed=1.0, release_height=100.0,
-                             start_height=50.0)
+    wire_cutter = WireCutter(wire_length=900.0, max_height=300.0, max_speed=25.0, min_speed=1.0, release_height=100.0,
+                             start_height=0.0, start_depth=10.0)
 
     spline_1_goe430 = goe430_spline
     spline_2_e66 = e66_spline
@@ -59,9 +60,14 @@ def main():
     tool_path = ToolPath.create_tool_path_from_two_splines(spline_1_goe430, spline_2_e66, wire_cutter)
     tool_path.plot_tool_paths()
 
-    plt.legend(['goe430 @ 250mm', 'e66 @ 750mm', 'tool_path @ 0mm', 'tool_path @ 2000mm'])
+    gcode = GCodeGenerator(wire_cutter, logger)
+    gcode.create_relative_gcode(file_path=r'M:\Projects\CNCHotWireCutter\test_gcode\test.txt', tool_path=tool_path)
+
+    plt.legend(['goe430 @ 250mm', 'e66 @ 750mm', 'tool_path @ 0mm', 'tool_path @ 900mm'])
     plt.axis('equal')
     plt.show()
+
+
 
 
 main()

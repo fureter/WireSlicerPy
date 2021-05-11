@@ -88,7 +88,6 @@ class Dat(Parser):
                         coords.append(float(split[indx][:-2]))
                 # initilize the point coordinates with 0,0,0 this handles the 2D case where z is left as 0
                 (x, y, z) = 0, 0, 0
-                print('Split: %s\r' % split)
                 if len(coords) > 1:
                     x = coords[0]
                     y = coords[1]
