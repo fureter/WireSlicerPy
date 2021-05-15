@@ -62,6 +62,21 @@ class ToolPath(object):
         plt.scatter(x1, y1)
         plt.scatter(x2, y2)
 
+    def plot_tool_path_connections(self, step):
+        """PLots the two gantry tool paths as 2d paths on the x-y plane."""
+        len_path1 = len(self._path1)
+        len_path2 = len(self._path2)
+
+        if abs(len_path1 - len_path2) > 1:
+            raise AttributeError('Error: Both tool paths are not of equal length [Path1: %s, Path2: %s]' % (len_path1,
+                                                                                                            len_path2))
+
+        for i in range(0, len_path1, step):
+            if i < len_path2:
+                x = (self._path1[i]['x'], self._path2[i]['x'])
+                y = (self._path1[i]['y'], self._path2[i]['y'])
+                plt.plot(x, y)
+
     @staticmethod
     def create_tool_path_from_two_gantry_paths(path1, path2):
         return ToolPath(path1, path2)
@@ -258,24 +273,67 @@ class ToolPath(object):
 
         return (path1, path2)
 
-    def create_path_with_uniform_ratio_spacing(self):
+    def create_path_with_uniform_ratio_spacing(self, key_points):
+        path1 = list()
+        path2 = list()
+        path1.append(self._path1[0])
+        path2.append(self._path2[0])
+
+        if key_points is None:
+            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                start_point=(self._path1[0], self._path2[0]),
+                end_point=(self._path1[0], self._path2[0]))
+            path1.extend(path1_tmp)
+            path2.extend(path2_tmp)
+        elif len(key_points) == 1:
+            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                start_point=(self._path1[0], self._path2[0]),
+                end_point=key_points[0])
+            path1.extend(path1_tmp)
+            path2.extend(path2_tmp)
+
+            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                start_point=key_points[0],
+                end_point=(self._path1[0], self._path2[0]))
+            path1.extend(path1_tmp)
+            path2.extend(path2_tmp)
+        else:
+            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                start_point=(self._path1[0], self._path2[0]),
+                end_point=key_points[0])
+            path1.extend(path1_tmp)
+            path2.extend(path2_tmp)
+
+            for idx in range(0, len(key_points)-1):
+                path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                    start_point=key_points[idx],
+                    end_point=key_points[idx+1])
+                path1.extend(path1_tmp)
+                path2.extend(path2_tmp)
+
+            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
+                start_point=key_points[-1],
+                end_point=(self._path1[0], self._path2[0]))
+            path1.extend(path1_tmp)
+            path2.extend(path2_tmp)
+
+        return path1, path2
+
+
+    def _get_uniform_spacing_points_along_path_segment(self, start_point, end_point):
+        path1 = list()
+        path2 = list()
         self.logger.info('Getting Lengths of each path')
         start = timeit.default_timer()
-        length_path1 = GeometricFunctions.path_length(self._path1)
+        length_path1 = GeometricFunctions.path_length_from_point_to_point(self._path1, start_point[0], end_point[0])
         self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
         start = timeit.default_timer()
-        length_path2 = GeometricFunctions.path_length(self._path2)
+        length_path2 = GeometricFunctions.path_length_from_point_to_point(self._path2, start_point[1], end_point[1])
 
         self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
 
         self.logger.info('Path 1 Length: %smm' % length_path1)
         self.logger.info('Path 2 Length: %smm' % length_path2)
-
-        path1 = list()
-        path2 = list()
-
-        path1.append(self._path1[0])
-        path2.append(self._path2[0])
 
         curr_dist = 0
         idx = 0
@@ -283,7 +341,7 @@ class ToolPath(object):
         start = timeit.default_timer()
         while curr_dist < length_path1:
             curr_dist += length_path1/100
-            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist)
+            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist, start_point=start_point[0])
             path1.append(point)
         self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
 
@@ -293,11 +351,10 @@ class ToolPath(object):
         start = timeit.default_timer()
         while curr_dist < length_path2:
             curr_dist += length_path2/100
-            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist)
+            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist, start_point=start_point[1])
             path2.append(point)
         self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
 
         self.logger.info('Length of XY Move List: %s' % len(path1))
         self.logger.info('Length of UZ Move List: %s' % len(path2))
-
         return (path1, path2)

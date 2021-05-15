@@ -79,6 +79,7 @@ class PointManip(object):
         center = Point(center[0], center[1], center[2])
 
         start_polar = timeit.default_timer()
+        # TODO: Loop ordering is not consistent, can be CW or CCW, needs to be consistent
         sorted_points = PointManip._loop_dist_sort(points)
         stop_polar = timeit.default_timer()
 

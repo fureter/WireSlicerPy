@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
+import Geometry.PrimativeGeometry
 from Slicer.WireCutter import WireCutter
 from Slicer.ToolPath import ToolPath
 from Geometry.Parser import Dat
@@ -29,13 +30,13 @@ def main():
     goe430 = Dat(filepath=file_path)
 
     e66 = Dat(filepath=e66_file_path)
-    #logger.info('Printing e66 coordinates')
-    #e66.log(logger)
+    # logger.info('Printing e66 coordinates')
+    # e66.log(logger)
     e66_reorder = PointManip.reorder_2d_cw(e66.get_data())
     profile_2_dist = 900
-    PointManip.Transform.scale(e66_reorder, np.array([120, 120, 1]), np.array([0.0, 0, 0]))
-    PointManip.Transform.rotate(e66_reorder, np.array([0.0, 0, np.deg2rad(2)]))
-    PointManip.Transform.translate(e66_reorder, np.array([0, 0, profile_2_dist]))
+    PointManip.Transform.scale(e66_reorder, np.array([100, 100, 1]), np.array([0.0, 0, 0]))
+    PointManip.Transform.rotate(e66_reorder, np.array([0.0, 0, np.deg2rad(0)]))
+    PointManip.Transform.translate(e66_reorder, np.array([10, 0, profile_2_dist]))
 
     e66_spline = Spline(e66_reorder, closed_loop=True)
 
@@ -50,7 +51,8 @@ def main():
 
     wire_len = 1000
 
-    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=25.0, min_speed=1.0, release_height=100.0,
+    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=25.0, min_speed=1.0,
+                             release_height=100.0,
                              start_height=0.0, start_depth=10.0)
 
     spline_1_goe430 = goe430_spline
@@ -60,16 +62,20 @@ def main():
     spline_2_e66.plot_spline()
 
     tool_path = ToolPath.create_tool_path_from_two_splines(spline_1_goe430, spline_2_e66, wire_cutter)
-    tool_path.plot_tool_paths()
+    #tool_path.plot_tool_paths()
+
+    key_points = list()
+    key_points.append((Geometry.PrimativeGeometry.GeometricFunctions.get_point_from_max_coord(tool_path._path1, 'x'),
+                       Geometry.PrimativeGeometry.GeometricFunctions.get_point_from_max_coord(tool_path._path2, 'x')))
 
     gcode = GCodeGenerator(wire_cutter, logger, travel_type=TravelType.CONSTANT_RATIO)
-    gcode.create_relative_gcode(file_path=r'M:\Projects\CNCHotWireCutter\test_gcode\test.txt', tool_path=tool_path)
+    gcode.create_relative_gcode(file_path=r'M:\Projects\CNCHotWireCutter\test_gcode\test.txt', tool_path=tool_path,
+                                key_points=key_points)
 
-    plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len, 'tool_path UZ @ 0mm'])
+    plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
+                'tool_path UZ @ 0mm'])
     plt.axis('equal')
     plt.show()
-
-
 
 
 main()

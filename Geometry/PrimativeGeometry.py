@@ -1,3 +1,4 @@
+import sys
 import os
 import csv
 import logging
@@ -382,6 +383,30 @@ class Spline(object):
 class GeometricFunctions(object):
 
     @staticmethod
+    def get_point_from_max_coord(path, dim):
+        max = -sys.maxsize - 1
+        point = None
+        for idx in range(0, len(path)):
+            if path[idx][dim] > max:
+                max = path[idx][dim]
+                point = path[idx]
+
+        return point
+
+    @staticmethod
+    def get_point_from_min_coord(path, dim):
+        min = sys.maxsize
+        point = None
+        for idx in range(0, len(path)):
+            print(path[idx])
+            print(path[idx][dim])
+            if path[idx][dim] < min:
+                min = path[idx][dim]
+                point = path[idx]
+
+        return point
+
+    @staticmethod
     def path_length(path):
         length = 0
         if isinstance(path, list):
@@ -394,15 +419,48 @@ class GeometricFunctions(object):
         return length
 
     @staticmethod
-    def get_point_along_path(path, distance):
+    def path_length_from_point_to_point(path, point_1, point_2):
         length = 0
-        index = 0
+        valid_region = False
         if isinstance(path, list):
             for idx in range(0, len(path) - 1):
-                length += np.sqrt((path[idx + 1] - path[idx]) ** 2)
-                if distance <= length:
-                    index = idx + 1
-                    break
+                if path[idx] == point_1:
+                    valid_region = True
+                if valid_region:
+                    diff = path[idx + 1] - path[idx]
+                    length += np.sqrt(diff ** 2)
+                if path[idx + 1] == point_2:
+                    valid_region = False
+            if length == 0:
+                raise ValueError('Error: Key Point 1: %s was never found on the path' % point_1)
+        else:
+            raise NotImplementedError('Error: path_length is currently only implemented for a list of points defining'
+                                      ' the path')
+        return length
+
+    @staticmethod
+    def get_point_along_path(path, distance, start_point=None):
+        length = 0
+        index = 0
+
+        valid_region = True if start_point is None else False
+
+        if isinstance(path, list):
+            for idx in range(0, len(path) - 1):
+                # If a start point was provided, check if we have reached the start point and set valid_region to true
+                if start_point is not None and path[idx] == start_point:
+                    valid_region = True
+
+                # Only calculate length if the points are within a valid region
+                if valid_region:
+                    length += np.sqrt((path[idx + 1] - path[idx]) ** 2)
+                    # If we have travelled the desired distance break out
+                    if distance <= length:
+                        index = idx + 1
+                        break
+            if length == 0:
+                raise ValueError('Error: Start point: %s was never found on the path' % start_point)
+
             prev_length = length - np.sqrt((path[index] - path[index - 1]) ** 2)
             diff = length - prev_length
             if diff == 0:
