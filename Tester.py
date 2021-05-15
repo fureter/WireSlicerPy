@@ -29,16 +29,16 @@ def main():
 
     goe430 = Dat(filepath=file_path)
 
-    e66 = Dat(filepath=e66_file_path)
+    naca0009 = Dat(filepath=e66_file_path)
     # logger.info('Printing e66 coordinates')
     # e66.log(logger)
-    e66_reorder = PointManip.reorder_2d_cw(e66.get_data())
+    naca009_reorder = PointManip.reorder_2d_cw(naca0009.get_data())
     profile_2_dist = 900
-    PointManip.Transform.scale(e66_reorder, np.array([100, 100, 1]), np.array([0.0, 0, 0]))
-    PointManip.Transform.rotate(e66_reorder, np.array([0.0, 0, np.deg2rad(0)]))
-    PointManip.Transform.translate(e66_reorder, np.array([10, 0, profile_2_dist]))
+    PointManip.Transform.scale(naca009_reorder, np.array([100, 100, 1]), np.array([0.0, 0, 0]))
+    PointManip.Transform.rotate(naca009_reorder, np.array([0.0, 0, np.deg2rad(0)]))
+    PointManip.Transform.translate(naca009_reorder, np.array([8, 3, profile_2_dist]))
 
-    e66_spline = Spline(e66_reorder, closed_loop=True)
+    naca0009_spline = Spline(naca009_reorder, closed_loop=True)
 
     # goe614.log(logger)
 
@@ -56,7 +56,7 @@ def main():
                              start_height=0.0, start_depth=10.0)
 
     spline_1_goe430 = goe430_spline
-    spline_2_e66 = e66_spline
+    spline_2_e66 = naca0009_spline
 
     spline_1_goe430.plot_spline()
     spline_2_e66.plot_spline()

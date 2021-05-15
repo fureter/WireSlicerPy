@@ -67,7 +67,7 @@ class ToolPath(object):
         len_path1 = len(self._path1)
         len_path2 = len(self._path2)
 
-        if abs(len_path1 - len_path2) > 1:
+        if abs(len_path1 - len_path2) > 2:
             raise AttributeError('Error: Both tool paths are not of equal length [Path1: %s, Path2: %s]' % (len_path1,
                                                                                                             len_path2))
 

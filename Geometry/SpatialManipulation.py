@@ -79,7 +79,6 @@ class PointManip(object):
         center = Point(center[0], center[1], center[2])
 
         start_polar = timeit.default_timer()
-        # TODO: Loop ordering is not consistent, can be CW or CCW, needs to be consistent
         sorted_points = PointManip._loop_dist_sort(points)
         stop_polar = timeit.default_timer()
 
@@ -145,6 +144,17 @@ class PointManip(object):
                             if dist_alt < dist_curr:
                                 closest_point = pon
                             trailing_edge_um = False
+                # If this is the first point, search for the next closest and choose the one with the higher y value
+                if i == 1:
+                    min_dist = 1000000000
+                    closest_point_2 = None
+                    for p in points:
+                        dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + ((curr_point['y'] - p['y'])) ** 2)
+                        if dist < min_dist and p not in sorted_points and p is not closest_point:
+                            min_dist = dist
+                            closest_point_2 = p
+                    if closest_point['y'] < closest_point_2['y']:
+                        closest_point = closest_point_2
 
                 sorted_points.append(closest_point)
 
