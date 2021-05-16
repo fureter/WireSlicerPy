@@ -9,6 +9,8 @@ from Slicer.WireCutter import WireCutter
 from Slicer.ToolPath import ToolPath
 from Geometry.Parser import Dat
 from Geometry.PrimativeGeometry import Spline
+from Geometry.PrimativeGeometry import Plane
+from Geometry.ComplexGeometry import STL
 from Geometry.SpatialManipulation import PointManip
 from GCode.Generator import GCodeGenerator
 from GCode.Generator import TravelType
@@ -62,7 +64,7 @@ def main():
     spline_2_e66.plot_spline()
 
     tool_path = ToolPath.create_tool_path_from_two_splines(spline_1_goe430, spline_2_e66, wire_cutter)
-    #tool_path.plot_tool_paths()
+    tool_path.plot_tool_paths()
 
     key_points = list()
     key_points.append((Geometry.PrimativeGeometry.GeometricFunctions.get_point_from_max_coord(tool_path._path1, 'x'),
@@ -75,6 +77,19 @@ def main():
     plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
                 'tool_path UZ @ 0mm'])
     plt.axis('equal')
+    plt.show()
+
+    test_stl = STL(file_path=r'M:\Projects\DropShip\OpenFOAM\Sweep_45_0AOA\constant\triSurface\assembly.stl',
+                   logger=logger)
+    #test_stl.plot_stl()
+    normal = np.array([0, 1, 0])
+    bounding_box = test_stl.mesh.bounds
+    logger.info('Bounds: %s' % bounding_box)
+    extent = bounding_box[0] * normal*0.9999
+    slice_plane = Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
+    test_stl.slice_into_cross_sections(origin_plane=slice_plane, spacing=0.01)
+    test_stl.plot_cross_sections()
+
     plt.show()
 
 

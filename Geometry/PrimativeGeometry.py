@@ -143,6 +143,14 @@ class Plane(object):
         vec = np.cross(vec1, vec2)
         return Plane.plane_from_point_norm(point, vec)
 
+    @property
+    def origin(self):
+        return [self._x0, self._y0, self._z0]
+
+    @property
+    def normal(self):
+        return [self._a, self._b, self._c]
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 class Spline(object):
