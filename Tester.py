@@ -11,6 +11,7 @@ from Geometry.Parser import Dat
 from Geometry.PrimativeGeometry import Spline
 from Geometry.PrimativeGeometry import Plane
 from Geometry.ComplexGeometry import STL
+from Geometry.ComplexGeometry import WingSegment
 from Geometry.SpatialManipulation import PointManip
 from GCode.Generator import GCodeGenerator
 from GCode.Generator import TravelType
@@ -27,29 +28,24 @@ def main():
     logging.getLogger('matplotlib.font_manager').disabled = True
 
     file_path = r'C:\Users\FurEt\Documents\goe430_refined.dat'
-    e66_file_path = r'C:\Users\FurEt\Documents\naca0009.dat'
+    naca0009_file_path = r'C:\Users\FurEt\Documents\naca0009.dat'
 
-    goe430 = Dat(filepath=file_path)
+    ag35_file_path = r'C:\Users\FurEt\Documents\ag35.dat'
 
-    naca0009 = Dat(filepath=e66_file_path)
-    # logger.info('Printing e66 coordinates')
-    # e66.log(logger)
-    naca009_reorder = PointManip.reorder_2d_cw(naca0009.get_data())
-    profile_2_dist = 900
-    PointManip.Transform.scale(naca009_reorder, np.array([100, 100, 1]), np.array([0.0, 0, 0]))
-    PointManip.Transform.rotate(naca009_reorder, np.array([0.0, 0, np.deg2rad(0)]))
-    PointManip.Transform.translate(naca009_reorder, np.array([8, 3, profile_2_dist]))
+    ag35_data = Dat(filepath=ag35_file_path)
+    ag35_data.log(logger)
+    ag35_reord = Dat(data=PointManip.reorder_2d_cw(ag35_data.get_data()))
+    ag35_spline = Spline(ag35_reord.get_data())
+    ag35_spline.plot_spline()
+    plt.axis('equal')
+    plt.show()
 
-    naca0009_spline = Spline(naca009_reorder, closed_loop=True)
-
-    # goe614.log(logger)
-
-    # goe614.plot_points2D()
-    profile_1_dist = 100
-    re_odr_pnts = PointManip.reorder_2d_cw(goe430.get_data())
-    PointManip.Transform.scale(re_odr_pnts, np.array([140, 140, 1]), np.array([0.0, 0, 0]))
-    PointManip.Transform.translate(re_odr_pnts, np.array([0, 0, profile_1_dist]))
-    goe430_spline = Spline(re_odr_pnts, closed_loop=True)
+    wing = WingSegment(name='AG35_eclipson', logger=logger)
+    wing.set_span(500)
+    wing.set_root_chord(140)
+    wing.set_tip_chord(120)
+    wing.set_root_airfoil(ag35_spline.get_points(resolution=1))
+    wing.set_tip_airfoil(ag35_spline.get_points(resolution=1))
 
     wire_len = 1000
 
@@ -57,27 +53,25 @@ def main():
                              release_height=100.0,
                              start_height=0.0, start_depth=10.0)
 
-    spline_1_goe430 = goe430_spline
-    spline_2_e66 = naca0009_spline
+    wing.prep_for_slicing()
+    wing.center_to_wire_cutter(wire_cutter=wire_cutter)
 
-    spline_1_goe430.plot_spline()
-    spline_2_e66.plot_spline()
-
-    tool_path = ToolPath.create_tool_path_from_two_splines(spline_1_goe430, spline_2_e66, wire_cutter)
+    tool_path = ToolPath.create_tool_path_from_wing_segment(wing, wire_cutter=wire_cutter)
+    tool_path.plot_tool_path_connections(step=10)
     tool_path.plot_tool_paths()
-
-    key_points = list()
-    key_points.append((Geometry.PrimativeGeometry.GeometricFunctions.get_point_from_max_coord(tool_path._path1, 'x'),
-                       Geometry.PrimativeGeometry.GeometricFunctions.get_point_from_max_coord(tool_path._path2, 'x')))
+    plt.axis('equal')
+    plt.show()
 
     gcode = GCodeGenerator(wire_cutter, logger, travel_type=TravelType.CONSTANT_RATIO)
     gcode.create_relative_gcode(file_path=r'M:\Projects\CNCHotWireCutter\test_gcode\test.txt', tool_path=tool_path,
-                                key_points=key_points)
-
-    plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
-                'tool_path UZ @ 0mm'])
+                                key_points=tool_path.get_key_points_for_wing())
     plt.axis('equal')
     plt.show()
+    #
+    # plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
+    #             'tool_path UZ @ 0mm'])
+    # plt.axis('equal')
+    # plt.show()
 
     test_stl = STL(file_path=r'M:\Projects\DropShip\OpenFOAM\Sweep_45_0AOA\constant\triSurface\assembly.stl',
                    logger=logger)

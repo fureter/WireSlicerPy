@@ -14,6 +14,7 @@ class Parser(object):
     """
 
     def __init__(self, data=None, filepath=None):
+        self.name = ''
         if data is not None:
             self._data = data
         if filepath is not None:
@@ -34,7 +35,7 @@ class Parser(object):
 
     def log(self, logger):
         """Log the data from the parser using a logger instance"""
-        logger.info('Printing Data:\r\n')
+        logger.info('Printing Data for section %s\r\n' % self.name)
         for data in self._data:
             logger.info(str(data))
 
@@ -61,6 +62,7 @@ class Dat(Parser):
         """
         super().__init__(data, filepath)
         self.type = None
+        self.name = ''
 
     def _import_data(self):
         """Implementation of Parser _import_data function. Reads through each line of the .dat file and creates 3D
@@ -95,8 +97,11 @@ class Dat(Parser):
                     if len(coords) > 2:
                         z = coords[2]
                         self.type = '3D'
-                # add the point to the list
-                points.append(Point(x, y, z))
+                    # add the point to the list
+                    points.append(Point(x, y, z))
+                else:
+                    print('Profile Name: %s' % split[0])
+                    self.name = split[0]
         # convert the list of points to a numpy array and save it to the object as self._data
         self._data = np.array(points)
 
@@ -120,10 +125,8 @@ class Dat(Parser):
         for i in range(0, size):
             x[i] = self._data[i]['x']
             y[i] = self._data[i]['y']
-        plt.figure(0)
         plt.plot(x, y, 'vr')
         plt.plot(x, y, 'k')
-        plt.draw()
 
 
 def is_float(val):

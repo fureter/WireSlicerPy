@@ -329,6 +329,15 @@ class Spline(object):
 
         return x, y, z
 
+    def get_points(self, resolution=10):
+        x, y, z = self.get_x_y_z(resolution=resolution)
+
+        points = list()
+        for i in range(0, len(x)):
+            points.append(Point(x[i], y[i], z[i]))
+
+        return points
+
     def plot_spline(self):
         (x, y, z) = self.get_x_y_z()
 
@@ -392,6 +401,13 @@ class GeometricFunctions(object):
 
     @staticmethod
     def get_point_from_max_coord(path, dim):
+        if not isinstance(path[0], Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
         max = -sys.maxsize - 1
         point = None
         for idx in range(0, len(path)):
@@ -399,20 +415,25 @@ class GeometricFunctions(object):
                 max = path[idx][dim]
                 point = path[idx]
 
-        return point
+        return point, max
 
     @staticmethod
     def get_point_from_min_coord(path, dim):
+        if not isinstance(path[0], Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
         min = sys.maxsize
         point = None
         for idx in range(0, len(path)):
-            print(path[idx])
-            print(path[idx][dim])
             if path[idx][dim] < min:
                 min = path[idx][dim]
                 point = path[idx]
 
-        return point
+        return point, min
 
     @staticmethod
     def path_length(path):
@@ -440,7 +461,9 @@ class GeometricFunctions(object):
                 if path[idx + 1] == point_2:
                     valid_region = False
             if length == 0:
-                raise ValueError('Error: Key Point 1: %s was never found on the path' % point_1)
+                print(point_1)
+                raise ValueError('Error: Key Point 1: %s was never found on the path with start point: %s' %
+                                 (point_1, path[0]))
         else:
             raise NotImplementedError('Error: path_length is currently only implemented for a list of points defining'
                                       ' the path')

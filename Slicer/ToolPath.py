@@ -8,6 +8,7 @@ from Geometry.PrimativeGeometry import Spline
 from Geometry.PrimativeGeometry import Point
 from Geometry.PrimativeGeometry import Line
 from Geometry.PrimativeGeometry import GeometricFunctions
+from Geometry.ComplexGeometry import WingSegment
 from Slicer.WireCutter import WireCutter
 from GCode.CommandLibrary import GCodeCommands
 
@@ -56,7 +57,6 @@ class ToolPath(object):
             x2[i] = self._path2[i]['x']
             y2[i] = self._path2[i]['y']
 
-
         plt.plot(x1, y1)
         plt.plot(x2, y2)
         plt.scatter(x1, y1)
@@ -82,6 +82,15 @@ class ToolPath(object):
         return ToolPath(path1, path2)
 
     @staticmethod
+    def create_tool_path_from_wing_segment(wing, wire_cutter):
+        """
+
+        :param WingSegment wing:
+        :return:
+        """
+        return ToolPath.create_tool_path_from_paths(wing.root_airfoil, wing.tip_airfoil, wire_cutter=wire_cutter)
+
+    @staticmethod
     def create_tool_path_from_two_splines(spline1, spline2, wire_cutter):
         """Creates a tool path from two splines and a wire_cutter object.
 
@@ -94,6 +103,13 @@ class ToolPath(object):
         # underlying point cloud. Spline resolution can be modified to evenly load the two path lengths
         (x1, y1, z1) = spline1.get_x_y_z()
         (x2, y2, z2) = spline2.get_x_y_z()
+
+        return ToolPath.create_tool_path_from_paths(zip(x1, y1, z1), zip(x2, y2, z2), wire_cutter=wire_cutter)
+
+    @staticmethod
+    def create_tool_path_from_paths(path1, path2, wire_cutter):
+        x1, y1, z1 = zip(*path1)
+        x2, y2, z2 = zip(*path2)
 
         len_x1 = len(x1)
         len_x2 = len(x2)
@@ -130,7 +146,7 @@ class ToolPath(object):
             point2 = Point(x2[val], y2[val], z2[val])
 
             line = Line.line_from_points(point1, point2)
-
+            print('Point1: %s, Point2: %s' % (point1, point2))
             gantry1_point = line.get_extrapolated_point(0, 'z')
             gantry2_point = line.get_extrapolated_point(wire_cutter.wire_length, 'z')
 
@@ -141,27 +157,34 @@ class ToolPath(object):
 
     def _shortest_distance_in_tool_path(self):
         min_dist = 99999999
-        for i in range(0, len(self._path1)-1):
-            dist = np.sqrt((self._path1[i+1] - self._path1[i])**2)
+        for i in range(0, len(self._path1) - 1):
+            dist = np.sqrt((self._path1[i + 1] - self._path1[i]) ** 2)
             if dist < min_dist:
                 min_dist = dist
 
-        for i in range(0, len(self._path2)-1):
-            dist = np.sqrt((self._path2[i+1] - self._path2[i])**2)
+        for i in range(0, len(self._path2) - 1):
+            dist = np.sqrt((self._path2[i + 1] - self._path2[i]) ** 2)
             if dist < min_dist:
                 min_dist = dist
 
         return min_dist
 
+    def get_key_points_for_wing(self):
+        key_points = list()
+        point1, _ = GeometricFunctions.get_point_from_max_coord(self._path1, 'x')
+        point2, _ = GeometricFunctions.get_point_from_max_coord(self._path2, 'x')
+        key_points.append((point1, point2))
+        return key_points
+
     def _longest_distance_in_tool_path(self):
         max_dist = 0
-        for i in range(0, len(self._path1)-1):
-            dist = np.sqrt((self._path1[i+1] - self._path1[i])**2)
+        for i in range(0, len(self._path1) - 1):
+            dist = np.sqrt((self._path1[i + 1] - self._path1[i]) ** 2)
             if dist > max_dist:
                 max_dist = dist
 
-        for i in range(0, len(self._path2)-1):
-            dist = np.sqrt((self._path2[i+1] - self._path2[i])**2)
+        for i in range(0, len(self._path2) - 1):
+            dist = np.sqrt((self._path2[i + 1] - self._path2[i]) ** 2)
             if dist > max_dist:
                 max_dist = dist
 
@@ -213,7 +236,6 @@ class ToolPath(object):
         self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
 
         return (path1, path2)
-
 
     def create_path_with_uniform_point_distances_splines(self):
         start = timeit.default_timer()
@@ -289,14 +311,23 @@ class ToolPath(object):
             path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
                 start_point=(self._path1[0], self._path2[0]),
                 end_point=key_points[0])
-            path1.extend(path1_tmp)
-            path2.extend(path2_tmp)
+
+            length1 = len(path1_tmp)
+            length2 = len(path2_tmp)
+            min_len = min([length1, length2])
+
+            path1.extend(path1_tmp[:min_len])
+            path2.extend(path2_tmp[:min_len])
 
             path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
                 start_point=key_points[0],
                 end_point=(self._path1[0], self._path2[0]))
-            path1.extend(path1_tmp)
-            path2.extend(path2_tmp)
+            length1 = len(path1_tmp)
+            length2 = len(path2_tmp)
+            min_len = min([length1, length2])
+
+            path1.extend(path1_tmp[:min_len])
+            path2.extend(path2_tmp[:min_len])
         else:
             path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
                 start_point=(self._path1[0], self._path2[0]),
@@ -304,10 +335,10 @@ class ToolPath(object):
             path1.extend(path1_tmp)
             path2.extend(path2_tmp)
 
-            for idx in range(0, len(key_points)-1):
+            for idx in range(0, len(key_points) - 1):
                 path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
                     start_point=key_points[idx],
-                    end_point=key_points[idx+1])
+                    end_point=key_points[idx + 1])
                 path1.extend(path1_tmp)
                 path2.extend(path2_tmp)
 
@@ -317,8 +348,10 @@ class ToolPath(object):
             path1.extend(path1_tmp)
             path2.extend(path2_tmp)
 
-        return path1, path2
+        path1.append(self._path1[0])
+        path2.append(self._path2[0])
 
+        return path1, path2
 
     def _get_uniform_spacing_points_along_path_segment(self, start_point, end_point):
         path1 = list()
@@ -340,7 +373,7 @@ class ToolPath(object):
         length = 0
         start = timeit.default_timer()
         while curr_dist < length_path1:
-            curr_dist += length_path1/100
+            curr_dist += length_path1 / 100
             point = GeometricFunctions.get_point_along_path(self._path1, curr_dist, start_point=start_point[0])
             path1.append(point)
         self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
@@ -350,7 +383,7 @@ class ToolPath(object):
         length = 0
         start = timeit.default_timer()
         while curr_dist < length_path2:
-            curr_dist += length_path2/100
+            curr_dist += length_path2 / 100
             point = GeometricFunctions.get_point_along_path(self._path2, curr_dist, start_point=start_point[1])
             path2.append(point)
         self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))

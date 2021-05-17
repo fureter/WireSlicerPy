@@ -79,6 +79,8 @@ class GCodeGenerator(object):
             cmd_list.append(enum.g1_linear_move(
                 self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
 
+        cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(-start_depth, 0.0, -start_depth, 0.0)))
+
         self._save_gcode_file(file_path, cmd_list)
 
     def create_constant_speed_movements(self, tool_path):
@@ -135,7 +137,7 @@ class GCodeGenerator(object):
         self.logger.info('Took %ss to create new paths with ratio spacing' % (timeit.default_timer() - start))
         debug_path = ToolPath.ToolPath(path1c, path2c)
         debug_path.plot_tool_paths()
-        debug_path.plot_tool_path_connections(step=10)
+        debug_path.plot_tool_path_connections(step=1)
         movements = list()
         self.logger.info('Creating movement commands for XY gantry')
         start = timeit.default_timer()
