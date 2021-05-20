@@ -14,6 +14,7 @@ from Geometry.ComplexGeometry import STL
 from Geometry.ComplexGeometry import WingSegment
 from Geometry.SpatialManipulation import PointManip
 from GCode.Generator import GCodeGenerator
+from GCode.Generator import CutLayout
 from GCode.Generator import TravelType
 
 
@@ -49,9 +50,11 @@ def main():
 
     wire_len = 1000
 
-    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=25.0, min_speed=1.0,
+    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=25.0, min_speed=0.01,
                              release_height=100.0,
                              start_height=0.0, start_depth=10.0)
+
+    wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
 
     wing.prep_for_slicing()
     wing.center_to_wire_cutter(wire_cutter=wire_cutter)
@@ -64,7 +67,8 @@ def main():
 
     gcode = GCodeGenerator(wire_cutter, logger, travel_type=TravelType.CONSTANT_RATIO)
     gcode.create_relative_gcode(file_path=r'M:\Projects\CNCHotWireCutter\test_gcode\test.txt', tool_path=tool_path,
-                                key_points=tool_path.get_key_points_for_wing())
+                                key_points=tool_path.get_key_points_for_wing(),
+                                cut_mode=CutLayout.SPLIT_SEGMENT)
     plt.axis('equal')
     plt.show()
     #

@@ -73,19 +73,19 @@ class Line(object):
         self._z0 = float(z0)
 
     def get_extrapolated_point(self, constraint, constraint_dim):
-        if constraint_dim is 'x':
+        if constraint_dim == 'x':
             val = (constraint - self._x0) / self._a
 
             x = constraint
             y = val * self._b + self._y0
             z = val * self._c + self._z0
-        elif constraint_dim is 'y':
+        elif constraint_dim == 'y':
             val = (constraint - self._y0) / self._b
 
             x = val * self._a + self._x0
             y = constraint
             z = val * self._c + self._z0
-        elif constraint_dim is 'z':
+        elif constraint_dim == 'z':
             val = (constraint - self._z0) / self._c
 
             x = val * self._a + self._x0
@@ -434,6 +434,42 @@ class GeometricFunctions(object):
                 point = path[idx]
 
         return point, min
+
+    @staticmethod
+    def get_index_max_coord(path, dim):
+        if not isinstance(path[0], Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
+        max = -sys.maxsize - 1
+        indx = 0
+        for idx in range(0, len(path)):
+            if path[idx][dim] > max:
+                max = path[idx][dim]
+                indx = idx
+
+        return indx
+
+    @staticmethod
+    def get_index_min_coord(path, dim):
+        if not isinstance(path[0], Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
+        min = sys.maxsize
+        indx = 0
+        for idx in range(0, len(path)):
+            if path[idx][dim] < min:
+                min = path[idx][dim]
+                indx = idx
+
+        return indx
 
     @staticmethod
     def path_length(path):

@@ -4,7 +4,7 @@ class WireCutter(object):
     """
 
     def __init__(self, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
-                 start_depth=None, feed_rate_mode=0,#GCodeCommands.FeedRate.UNITS_PER_MINUTE,
+                 start_depth=None, feed_rate_mode=94,
                  axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}'):
         """
 

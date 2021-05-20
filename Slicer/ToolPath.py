@@ -10,7 +10,6 @@ from Geometry.PrimativeGeometry import Line
 from Geometry.PrimativeGeometry import GeometricFunctions
 from Geometry.ComplexGeometry import WingSegment
 from Slicer.WireCutter import WireCutter
-from GCode.CommandLibrary import GCodeCommands
 
 
 class ToolPath(object):
