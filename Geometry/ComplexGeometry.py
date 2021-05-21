@@ -18,7 +18,7 @@ class STL(object):
 
     """
 
-    def __init__(self, file_path, logger=None):
+    def __init__(self, file_path, logger=None, units='cm'):
         """
 
         :param file_path:
@@ -28,7 +28,7 @@ class STL(object):
         self.logger = logger
         self.cross_sections = None
         self._file_path = file_path
-        self._setup()
+        self._setup(units=units)
 
     def slice_into_cross_sections(self, origin_plane, spacing):
         """
@@ -81,9 +81,10 @@ class STL(object):
             i += 1
             plt.show(block=False)
 
-    def _setup(self):
+    def _setup(self, units):
         tm.util.attach_to_log(level=logging.INFO)
         self.mesh = tm.load(self._file_path, force='mesh')
+        self.mesh.metadata['units'] = units
 
 
 class WingSegment(object):
