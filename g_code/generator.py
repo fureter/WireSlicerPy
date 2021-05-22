@@ -1,9 +1,9 @@
 import timeit
 
-import GCode.CommandLibrary as CommandLibrary
-import Geometry.PrimativeGeometry
-from Slicer.WireCutter import WireCutter
-import Slicer.ToolPath as ToolPath
+import g_code.command_library as CommandLibrary
+import geometry.primative
+from slicer.wire_cutter import WireCutter
+import slicer.tool_path as ToolPath
 
 
 class TravelType(object):
@@ -57,12 +57,12 @@ class GCodeGenerator(object):
     # TODO: This code was not thought out well for future feature addition. Needs to be made more abstract to support
     #  multiple toolpath links (Segment Cut for example which was just slapped in below, or spars)
     #  The cut_mode and linking of toolpaths really belong in the slicer sub-package, Generator should only really
-    #  be handling taking the toolpath and turning it into GCode for the given wire_cutter
+    #  be handling taking the toolpath and turning it into g_code for the given wire_cutter
     def create_relative_gcode(self, file_path, tool_path, key_points=None, cut_mode=CutLayout.CONSTANT_CUT):
         """
 
         :param file_path:
-        :param ToolPath tool_path:
+        :param tool_path tool_path:
         :param list[Point] key_points:
         :param int cut_mode: Defines how the toolpath should be sliced.
         :return:
@@ -260,8 +260,8 @@ class GCodeGenerator(object):
         debug_path.plot_tool_path_connections(step=1)
 
         if cut_mode is CutLayout.SPLIT_SEGMENT:
-            max_idx_x = Geometry.PrimativeGeometry.GeometricFunctions.get_index_max_coord(path1c, 'x')
-            max_idx_u = Geometry.PrimativeGeometry.GeometricFunctions.get_index_max_coord(path2c, 'x')
+            max_idx_x = geometry.primative.GeometricFunctions.get_index_max_coord(path1c, 'x')
+            max_idx_u = geometry.primative.GeometricFunctions.get_index_max_coord(path2c, 'x')
         else:
             max_idx_x = len(path1c) - 1
             max_idx_u = len(path2c) - 1

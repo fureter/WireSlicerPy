@@ -1,6 +1,6 @@
 """
     Modules to handle differnent functionality revolving around CNC Hotwire cutting and generating slices from 3D
-    Geometry for template creation.
+    geometry for template creation.
 
     Goal: Streamline the process of manufacturing complex 3D objects using CNC hotwire cutters, or by generating
     printable templates.

@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .PrimativeGeometry import Point
+from .primative import Point
 
 
 class Parser(object):

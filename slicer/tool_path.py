@@ -4,12 +4,12 @@ import timeit
 import numpy as np
 import matplotlib.pyplot as plt
 
-from Geometry.PrimativeGeometry import Spline
-from Geometry.PrimativeGeometry import Point
-from Geometry.PrimativeGeometry import Line
-from Geometry.PrimativeGeometry import GeometricFunctions
-from Geometry.ComplexGeometry import WingSegment
-from Slicer.WireCutter import WireCutter
+from geometry.primative import Spline
+from geometry.primative import Point
+from geometry.primative import Line
+from geometry.primative import GeometricFunctions
+from geometry.complex import WingSegment
+from slicer.wire_cutter import WireCutter
 
 
 class ToolPath(object):

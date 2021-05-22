@@ -5,12 +5,12 @@ import numpy as np
 import trimesh as tm
 from matplotlib import pyplot as plt
 
-from .PrimativeGeometry import Point
-from .PrimativeGeometry import Plane
-from .PrimativeGeometry import GeometricFunctions
-from .SpatialManipulation import PointManip
-from Slicer.WireCutter import WireCutter
-from Util import UtilFunctions
+from .primative import Point
+from .primative import Plane
+from .primative import GeometricFunctions
+from .spatial_manipulation import PointManip
+from slicer.wire_cutter import WireCutter
+from util import util_functions
 
 
 class STL(object):
@@ -66,18 +66,20 @@ class STL(object):
     def plot_stl(self):
         self.mesh.show()
 
-    def plot_cross_sections(self):
+    def plot_cross_sections(self, bounds):
         if self.cross_sections is None:
             raise AttributeError('Error: Cross sections have not been generated for this STL')
         num_sections = len(self.cross_sections)
         self.logger.info('Number of sections being plotted: %s' % num_sections)
-        (r, c) = UtilFunctions.get_r_and_c_from_num(num_sections)
+        (r, c) = util_functions.get_r_and_c_from_num(num_sections)
         self.logger.info('Creating section subplots with r: %s and c: %s' % (r, c))
         i = 1
         for section in self.cross_sections:
             ax = plt.subplot(int(r), int(c), i)
             section.to_planar()[0].plot_entities()
             ax.set_title('Cross Section: %s' % i)
+            ax.set_xlim([bounds[0][1], bounds[1][1]])
+            ax.set_ylim([bounds[0][2], bounds[1][2]])
             i += 1
             plt.show(block=False)
 
@@ -120,12 +122,12 @@ class WingSegment(object):
 
         self.prepped = False
 
-    def prep_for_slicing(self):
+    def prep_for_slicing(self, plot=False):
         """
 
         :return:
         """
-        self.check_minimum_data_present()
+        self._check_minimum_data_present()
 
         if self.sweep is None:
             self.logger.warning('Sweep is not specified for Wing Segment: [%s],'
@@ -167,7 +169,8 @@ class WingSegment(object):
 
         # Translate the tip airfoil back by the sweep amount if the sweep is a positive angle,
         # Translate the root if the sweep is a negative angle
-        sweep_offset = self.span * np.sin(np.rad2deg(self.sweep))
+        sweep_offset = self.span * np.sin(np.deg2rad(self.sweep))
+        self.logger.info('Offsetting Airfoil by %smm to account for sweep' % sweep_offset)
         if sweep_offset < 0:
             PointManip.Transform.translate(self.root_airfoil, [-sweep_offset, 0, 0])
         else:
@@ -179,9 +182,25 @@ class WingSegment(object):
         print('Point1: %s, Point2: %s' % (self.root_airfoil[0], self.tip_airfoil[0]))
         print('*'*80)
 
+        if plot:
+            x = list()
+            y = list()
+            for point in self.root_airfoil:
+                x.append(point['x'])
+                y.append(point['y'])
+            plt.plot(x, y)
+
+            x = list()
+            y = list()
+            for point in self.tip_airfoil:
+                x.append(point['x'])
+                y.append(point['y'])
+            plt.plot(x, y)
+            plt.axis('equal')
+
         self.prepped = True
 
-    def check_minimum_data_present(self):
+    def _check_minimum_data_present(self):
         """
 
         :return:
