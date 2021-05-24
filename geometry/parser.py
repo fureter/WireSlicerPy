@@ -81,7 +81,7 @@ class Dat(Parser):
                 split = row.split(' ')  # most dat files use spaces to separate the values instead of commas.
                 coords = list()
 
-                if len(split) == 1:  # if there were no spaces, the file is most likly using \t characters
+                if len(split) == 1:  # if there were no spaces, the file is most likely using \t characters
                     split = split[0].split('\t')  # re-split with \t
 
                 for indx in range(0, len(split)):
@@ -96,6 +96,8 @@ class Dat(Parser):
                 if len(coords) > 1:
                     x = coords[0]
                     y = coords[1]
+                    if x == y and x > 5:
+                        continue
                     # check if there are more than 2 coordinates
                     if len(coords) > 2:
                         z = coords[2]

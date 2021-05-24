@@ -104,7 +104,7 @@ class PointManip():
     @staticmethod
     def _complex_polar_sort(points, center):
         sorted_points = list()
-        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=11, points=points)
+        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=7, points=points)
         tol = 10.0
         step = -tol/2
         check_angle = 90
@@ -122,7 +122,21 @@ class PointManip():
                 top_most_y = p['y']
         sorted_points.append(left_most_point)
 
-        for indx in range(1, len(points)):
+        # Add the next point to the list using a nearest distance method, enforcing that the point must be above
+        # the leading edge point. This is a weak condition to enforce CW looping.
+        min_dist = sys.maxsize
+        curr_point = sorted_points[-1]
+        next_point = None
+        for point in points:
+            dist = np.sqrt((curr_point-point)**2)
+            if dist < min_dist and point['y'] > curr_point['y']:
+                next_point = point
+                min_dist = dist
+        sorted_points.append(next_point)
+
+        # Start the primary sorting loop. Sorting will handle the top segment of the curve first by utilizing reference
+        # lines that follow the midpoint of the cross section
+        for indx in range(2, len(points)):
             curr_point = sorted_points[-1]
             angle_dict = dict()
             for point in points:
@@ -148,6 +162,7 @@ class PointManip():
 
     @staticmethod
     def get_mid_lines_from_closed_path(segments, points):
+
         lines = list()
         closest_points = list()
         left_most_x = 10000000
@@ -166,6 +181,7 @@ class PointManip():
         for i in range(1, segments):
             x = left_most_x + i * delta
             closest_points.append(PointManip.get_two_points_at_coord(points, 'x', x))
+            print('Closest_Points: %s' % closest_points)
 
         line = Line.line_from_points(left_most_point, Point(closest_points[0][0]['x'],
                                                             (closest_points[0][0]['y'] +
