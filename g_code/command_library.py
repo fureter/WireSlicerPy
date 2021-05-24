@@ -1,10 +1,10 @@
-class GCodeCommands(object):
+class GCodeCommands():
 
     @staticmethod
     def comment(comment):
         return '( %s )' % comment
 
-    class MovementCommand(object):
+    class MovementCommand():
         @staticmethod
         def g0_rapid_positioning(axis_with_feed):
             return 'G0 %s' % axis_with_feed
@@ -13,12 +13,12 @@ class GCodeCommands(object):
         def g1_linear_move(axis_with_feed):
             return 'G1 %s' % axis_with_feed
 
-    class Dwell(object):
+    class Dwell():
         @staticmethod
         def dwell(time):
             return 'G4 P%s' % time
 
-    class FeedRate(object):
+    class FeedRate():
         """
         InverseTime: Feed word means the move should be completed in 1/F minutes
         UnitsPerMinute: Feed word means the gantry should move at F units/minute
@@ -39,7 +39,7 @@ class GCodeCommands(object):
         def set_feed_rate(rate):
             return 'F%s' % rate
 
-    class WorkSpacePlane(object):
+    class WorkSpacePlane():
         XY = 17
         ZX = 18
         YZ = 19
@@ -52,7 +52,7 @@ class GCodeCommands(object):
             else:
                 raise ValueError('WorkSpacePlane G%s does not exist' % plane)
 
-    class UnitMode(object):
+    class UnitMode():
         IN = 20
         MM = 21
         RANGE = [IN, MM]
@@ -64,7 +64,7 @@ class GCodeCommands(object):
             else:
                 raise ValueError('Units G%s does not exist' % units)
 
-    class PositionMode(object):
+    class PositionMode():
         ABSOLUTE = 90
         RELATIVE = 91
         RANGE = [ABSOLUTE, RELATIVE]

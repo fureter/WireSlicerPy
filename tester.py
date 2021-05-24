@@ -1,5 +1,6 @@
 import logging
 import sys
+import copy
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,20 +31,26 @@ def main():
     file_path = r'assets/Airfoils/MH70.dat'
     naca0009_file_path = r'assets/Airfoils/naca0009.dat'
 
-    ag35_file_path = r'assets/Airfoils/MH70.dat'
+    ag35_file_path = r'assets/Airfoils/ag35.dat'
+    s5020_file_path = r'assets/Airfoils/s5020.dat'
 
-    ag35_data = Dat(filepath=ag35_file_path)
-    ag35_reord = Dat(data=PointManip.reorder_2d_cw(ag35_data.get_data()))
-    ag35_spline = Spline(ag35_reord.get_data())
+    s5020_data = Dat(filepath=s5020_file_path)
+    s5020_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(s5020_data.get_data())))
+    s5020_reord.plot_points_2d()
+    plt.axis('equal')
+    plt.show()
 
-    wing = WingSegment(name='MH70_Wing', logger=logger)
+    s5020_spline = Spline(s5020_reord.get_data())
+
+    logger.info('Profile Name: %s' % s5020_data.name)
+
+    wing = WingSegment(name=s5020_data.name, logger=logger)
     wing.set_span(200)
     wing.set_root_chord(160)
     wing.set_tip_chord(120)
-    wing.set_root_airfoil(ag35_spline.get_points(resolution=1))
-    wing.set_tip_airfoil(ag35_spline.get_points(resolution=1))
+    wing.set_root_airfoil(s5020_spline.get_points(resolution=1))
+    wing.set_tip_airfoil(s5020_spline.get_points(resolution=1))
     wing.set_sweep(5)
-    wing.set_washout(2)
 
     wire_len = 1000
 
@@ -55,10 +62,12 @@ def main():
 
     wing.prep_for_slicing(plot=True)
     wing.center_to_wire_cutter(wire_cutter=wire_cutter)
+    print('Root Airfoil Point after prepping: %s' % wing.root_airfoil[0])
 
     tool_path = ToolPath.create_tool_path_from_wing_segment(wing, wire_cutter=wire_cutter)
     tool_path.plot_tool_path_connections(step=10)
     tool_path.plot_tool_paths()
+    tool_path.zero_forwards_path_for_cutting()
     plt.axis('equal')
     plt.show()
 

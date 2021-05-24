@@ -1,4 +1,4 @@
-class WireCutter(object):
+class WireCutter():
     """
 
     """

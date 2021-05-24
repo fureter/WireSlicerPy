@@ -1,14 +1,16 @@
 import copy
+import sys
 import timeit
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from .primative import Point
+from .primative import Line
 
 
-class PointManip(object):
-    class Transform(object):
+class PointManip():
+    class Transform():
 
         @staticmethod
         def translate(points, vector):
@@ -79,7 +81,7 @@ class PointManip(object):
         center = Point(center[0], center[1], center[2])
 
         start_polar = timeit.default_timer()
-        sorted_points = PointManip._loop_dist_sort(points)
+        sorted_points = PointManip._complex_polar_sort(points, center)
         stop_polar = timeit.default_timer()
 
         return np.array(sorted_points)
@@ -100,7 +102,180 @@ class PointManip(object):
         return sorted_points
 
     @staticmethod
+    def _complex_polar_sort(points, center):
+        sorted_points = list()
+        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=11, points=points)
+        tol = 10.0
+        step = -tol/2
+        check_angle = 90
+        left_most_x = 10000000
+        right_most_x = 0
+        top_most_y = -10000000
+        left_most_point = None
+        for p in points:
+            if p['x'] > right_most_x:
+                right_most_x = p['x']
+            if p['x'] < left_most_x:
+                left_most_x = p['x']
+                left_most_point = p
+            if p['y'] > top_most_y:
+                top_most_y = p['y']
+        sorted_points.append(left_most_point)
+
+        for indx in range(1, len(points)):
+            curr_point = sorted_points[-1]
+            angle_dict = dict()
+            for point in points:
+                if point not in sorted_points:
+                    angle = np.rad2deg(np.arctan2(point['y'] - curr_point['y'], point['x']-curr_point['x']))
+                    angle_dict[angle] = point
+
+            reference_line = PointManip.get_refernce_line(mid_lines, curr_point['x'], 'x')
+
+            next_angle_cw = PointManip._get_next_angle_from_sorted_angles(angle_dict=angle_dict, curr_point=curr_point,
+                                                                          check_angle=check_angle, tol=tol, step=step,
+                                                                          reference_line=reference_line)
+            next_angle_ccw = PointManip._get_next_angle_from_sorted_angles(angle_dict=angle_dict, curr_point=curr_point,
+                                                                           check_angle=-check_angle, tol=tol,
+                                                                           step=-step, reference_line=reference_line)
+            if next_angle_ccw is not None and next_angle_cw is not None:
+                dist_cw = 0.9*np.sqrt((angle_dict[next_angle_cw] - curr_point)**2)
+                dist_ccw = np.sqrt((angle_dict[next_angle_ccw] - curr_point)**2)
+
+                next_angle = next_angle_cw if dist_cw < dist_ccw else next_angle_ccw
+                sorted_points.append(angle_dict[next_angle])
+        return sorted_points
+
+    @staticmethod
+    def get_mid_lines_from_closed_path(segments, points):
+        lines = list()
+        closest_points = list()
+        left_most_x = 10000000
+        right_most_x = 0
+        left_most_point = None
+        right_most_point = None
+        for p in points:
+            if p['x'] > right_most_x:
+                right_most_x = p['x']
+                right_most_point = p
+            if p['x'] < left_most_x:
+                left_most_x = p['x']
+                left_most_point = p
+        chord = right_most_x - left_most_x
+        delta = chord / segments
+        for i in range(1, segments):
+            x = left_most_x + i * delta
+            closest_points.append(PointManip.get_two_points_at_coord(points, 'x', x))
+
+        line = Line.line_from_points(left_most_point, Point(closest_points[0][0]['x'],
+                                                            (closest_points[0][0]['y'] +
+                                                             closest_points[0][1]['y'])/2,
+                                                            closest_points[0][0]['z']))
+        line.plot()
+        lines.append(line)
+        for indx in range(0, segments-2):
+            left = Point(closest_points[indx][0]['x'],
+                         (closest_points[indx][0]['y'] +
+                          closest_points[indx][1]['y']) / 2,
+                         closest_points[indx][0]['z'])
+
+            right = Point(closest_points[indx + 1][0]['x'],
+                          (closest_points[indx + 1][0]['y'] +
+                           closest_points[indx + 1][1]['y']) / 2,
+                          closest_points[indx + 1][0]['z'])
+            line = Line.line_from_points(left, right)
+            line.plot()
+            lines.append(line)
+
+        last = Point(closest_points[-1][0]['x'],
+                     (closest_points[-1][0]['y'] +
+                      closest_points[-1][1]['y']) / 2,
+                     closest_points[-1][0]['z'])
+        line = Line.line_from_points(last, right_most_point)
+        line.plot()
+        lines.append(line)
+
+        return lines
+
+    @staticmethod
+    def get_two_points_at_coord(points, dim, coord):
+        """
+
+        :param list[Point] points:
+        :param str or int dim:
+        :param float or int coord:
+        :return:
+        """
+        closest_points = [None, None]
+        for point in points:
+            if closest_points[0] is None:
+                closest_points[0] = point
+                continue
+            if closest_points[1] is None:
+                closest_points[1] = point
+                continue
+            if abs(coord-point[dim]) < abs(coord-closest_points[0][dim]) and point != closest_points[1]:
+                closest_points[1] = closest_points[0]
+                closest_points[0] = point
+                continue
+            if abs(coord-point[dim]) < abs(coord-closest_points[1][dim]) and point != closest_points[0]:
+                closest_points[1] = point
+                continue
+
+        return closest_points
+
+    @staticmethod
+    def get_refernce_line(lines, coord, dim):
+        ret_val = None
+        for line in lines:
+            if line.coord_in_range_dim(coord, dim):
+                ret_val = line
+        return ret_val
+
+    @staticmethod
+    def _get_next_angle_from_sorted_angles(angle_dict, curr_point, tol=10, check_angle=90, step=1, reference_line=None):
+        """
+        
+        :param dict[Point] angle_dict: 
+        :param Point curr_point: 
+        :param float or int tol:
+        :param float or int check_angle: 
+        :param float or int step: 
+        :param Line or None reference_line:
+        :return:
+        """
+        keys = angle_dict.keys()
+        break_out = check_angle + 360 if step > 0 else check_angle - 360
+        ret_val = None
+        no_angle = True
+
+        side_curr = np.sign(reference_line.signed_distance_to_point_xy(curr_point))
+
+        while no_angle:
+            within_tol = list()
+            for key in keys:
+                angle_diff = (check_angle - key)
+                angle_diff = (angle_diff + 180) % 360 - 180
+                signed_key = np.sign(reference_line.signed_distance_to_point_xy(angle_dict[key]))
+                if abs(angle_diff) < tol and (signed_key == side_curr or side_curr == 0 or signed_key == 0):
+                    within_tol.append(key)
+            check_angle += step
+            if check_angle == break_out:
+                no_angle = False
+            if len(within_tol) > 0:
+                no_angle = False
+                min_dist = sys.maxsize
+                for key in within_tol:
+                    dist = np.sqrt((angle_dict[key] - curr_point)**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        ret_val = key
+
+        return ret_val
+
+    @staticmethod
     def _loop_dist_sort(points):
+        angle_weight = 1
         sorted_points = list()
         left_most_x = 10000000
         right_most_x = 0
@@ -112,21 +287,42 @@ class PointManip(object):
                 left_most_x = p['x']
                 left_most_point = p
 
+        prev_point = None
         sorted_points.append(left_most_point)
         trailing_edge_um = True
         for i in range(1, len(points)):
             curr_point = sorted_points[-1]
+            prev_angle = None
+            if prev_point is not None:
+                prev_angle = np.rad2deg(np.arctan2(curr_point['y'] - prev_point['y'],
+                                                   curr_point['x'] - prev_point['x']))
             closest_point = None
             min_dist = 1000000000
             y_weight = 4
+            angles = list()
             for p in points:
-                # Use a weighted distance that places more emphasis on the x_distance, this helps with the trailing
-                # edge, highly cambered profiles will still be incorrect
-                dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + (y_weight * (curr_point['y'] - p['y'])) ** 2)
-                if dist < min_dist and p not in sorted_points:
-                    min_dist = dist
-                    closest_point = p
-                    # take care of the trailing edge with overlapping x coords
+                if p not in sorted_points:
+                    # Use a weighted distance that places more emphasis on the x_distance, this helps with the trailing
+                    # edge, highly cambered profiles will still be incorrect
+                    dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + (y_weight * (curr_point['y'] - p['y'])) ** 2)
+                    weighted_dist = dist
+                    curr_angle = None
+                    delta_angle = None
+                    if prev_point is not None:
+                        curr_angle = np.rad2deg(np.arctan2(curr_point['y'] - p['y'], curr_point['x']-p['x']))
+                        # plt.plot([prev_point['x'], curr_point['x']], [prev_point['y'], curr_point['y']])
+                        # plt.plot([curr_point['x'], p['x']], [curr_point['y'], p['y']])
+                        delta_angle = abs(curr_angle-prev_angle)
+                        angles.append(delta_angle)
+                        # plt.legend(['Previous Line', 'Current Line'])
+                        # plt.title('Delta Angle: %s, Last Angle: %s, Curr Angle: %s' %
+                        #           (delta_angle, prev_angle, curr_angle))
+                        # plt.show()
+                        weighted_dist = dist * (1-angle_weight) + (delta_angle/100) * angle_weight
+                    if weighted_dist < min_dist and p not in sorted_points:
+                        min_dist = dist
+                        closest_point = p
+                        # take care of the trailing edge with overlapping x coords
             if closest_point is not None:
                 if closest_point['x'] == right_most_x and trailing_edge_um:
                     for pon in points:
@@ -155,7 +351,22 @@ class PointManip(object):
                             closest_point_2 = p
                     if closest_point['y'] < closest_point_2['y']:
                         closest_point = closest_point_2
+                if prev_point is not None:
+                    print('*' * 80)
+                    for angle in angles:
+                        print('\tDelta Angle: %s' % angle)
+                    print('Point %s, prev_angle: %s, curr_angle: %s, delta_angle: %s, dist: %s, weighted_dist: %s' %
+                          (i, prev_angle, curr_angle, delta_angle, dist, weighted_dist))
 
+                    # print('*' * 80)
+                    # plt.plot([prev_point['x'], curr_point['x']], [prev_point['y'], curr_point['y']])
+                    # plt.plot([curr_point['x'], closest_point['x']], [curr_point['y'], closest_point['y']])
+                    # plt.legend(['Previous Line', 'Current Line'])
+                    # plt.title('Delta Angle: %s, Last Angle: %s, Curr Angle: %s' %
+                    #           (delta_angle, prev_angle, curr_angle))
+                    # plt.axis('equal')
+                    # plt.show()
+                prev_point = copy.deepcopy(curr_point)
                 sorted_points.append(closest_point)
 
         return sorted_points

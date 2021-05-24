@@ -1,10 +1,12 @@
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 from .primative import Point
 
 
-class Parser(object):
+class Parser():
     """Base Parser class to be extended by implemented parser classes for specific file types.
 
     :param self._data: Array of Point entries representing points along the curve defined by the dat file.
@@ -14,7 +16,7 @@ class Parser(object):
     """
 
     def __init__(self, data=None, filepath=None):
-        self.name = ''
+        self.name = None
         if data is not None:
             self._data = data
         if filepath is not None:
@@ -61,8 +63,9 @@ class Dat(Parser):
         :type filepath: str.
         """
         super().__init__(data, filepath)
-        self.type = None
-        self.name = ''
+        if filepath is None:
+            self.type = None
+            self.name = None
 
     def _import_data(self):
         """Implementation of Parser _import_data function. Reads through each line of the .dat file and creates 3D
@@ -88,7 +91,7 @@ class Dat(Parser):
                     # check if the split has a new line character, if so remove it
                     if r'\n' in split[indx]:
                         coords.append(float(split[indx][:-2]))
-                # initilize the point coordinates with 0,0,0 this handles the 2D case where z is left as 0
+                # initialize the point coordinates with 0,0,0 this handles the 2D case where z is left as 0
                 (x, y, z) = 0, 0, 0
                 if len(coords) > 1:
                     x = coords[0]
@@ -100,9 +103,11 @@ class Dat(Parser):
                     # add the point to the list
                     points.append(Point(x, y, z))
                 else:
-                    print('Profile Name: %s' % split[0])
-                    self.name = split[0]
-        # convert the list of points to a numpy array and save it to the object as self._data
+                    print('Profile Name: %s' % split[0].rstrip())
+                    self.name = split[0].rstrip()
+        if self.name is None:
+            self.name = os.path.basename(self._filepath).rstrip()
+        # convert the list of points to a numpy array and save it to the  as self._data
         self._data = np.array(points)
 
     def export_data(self, filepath=None):

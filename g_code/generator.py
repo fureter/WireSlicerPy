@@ -1,12 +1,12 @@
 import timeit
 
-import g_code.command_library as CommandLibrary
-import geometry.primative
+import g_code.command_library as command_library
+from geometry.primative import GeometricFunctions
 from slicer.wire_cutter import WireCutter
-import slicer.tool_path as ToolPath
+from slicer.tool_path import ToolPath
 
 
-class TravelType(object):
+class TravelType():
     # Maintains both gantry's at a constant speed.
     CONSTANT_SPEED = 0
     # Maintains a constant speed/total_distance between both gantries
@@ -22,7 +22,8 @@ class TravelType(object):
                 TravelType.CONSTANT_RATIO: 'CONST_RATIO',
                 TravelType.ADAPTIVE_RATIO: 'ADAPT_RATIO'}[val]
 
-class CutLayout(object):
+
+class CutLayout():
     # Default cutting layout, the whole toolpath is sliced as one continuous cut.
     CONSTANT_CUT = 0
     # Cutting layout geared more towards wings and long slender cuts. Cuts the top, then bottom of the toolpath,
@@ -37,7 +38,7 @@ class CutLayout(object):
                 TravelType.CONSTANT_RATIO: 'SPLIT_SEGMENT'}[val]
 
 
-class GCodeGenerator(object):
+class GCodeGenerator():
     def __init__(self, wire_cutter, logger, travel_type=TravelType.CONSTANT_SPEED):
         """
 
@@ -81,14 +82,14 @@ class GCodeGenerator(object):
         if self._wire_cutter.start_up_gcode:
             cmd_list.extend(self._wire_cutter.start_up_gcode)
 
-        enum = CommandLibrary.GCodeCommands.PositionMode
+        enum = command_library.GCodeCommands.PositionMode
         cmd_list.append(enum.set_positioning_mode(enum.RELATIVE))
 
-        enum = CommandLibrary.GCodeCommands.FeedRate
+        enum = command_library.GCodeCommands.FeedRate
         cmd_list.append(enum.set_mode(self._wire_cutter.feed_rate_mode))
         cmd_list.append(enum.set_feed_rate(self._wire_cutter.min_speed))
 
-        enum = CommandLibrary.GCodeCommands.MovementCommand
+        enum = command_library.GCodeCommands.MovementCommand
         start_height = self._wire_cutter.start_height
         start_depth = self._wire_cutter.start_depth
         cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(0.0, start_height, 0.0, start_height)))
@@ -136,7 +137,7 @@ class GCodeGenerator(object):
             curr_y += release_height
             curr_z += release_height
 
-            cmd_list.append(CommandLibrary.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
+            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
 
             cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
                 -curr_x, 0, -curr_u, 0)))
@@ -148,7 +149,7 @@ class GCodeGenerator(object):
             curr_y -= curr_y + start_height
             curr_z -= curr_z + start_height
 
-            cmd_list.append(CommandLibrary.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.min_speed))
+            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.min_speed))
 
             cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_depth, 0.0, start_depth, 0.0)))
             curr_x += start_depth
@@ -182,7 +183,7 @@ class GCodeGenerator(object):
             curr_y += release_height
             curr_z += release_height
 
-            cmd_list.append(CommandLibrary.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
+            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
 
             cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
                 -curr_x, 0, -curr_u, 0)))
@@ -212,7 +213,7 @@ class GCodeGenerator(object):
         :param feed_rate_mode:
         :return:
         """
-        enum = CommandLibrary.GCodeCommands
+        enum = command_library.GCodeCommands
         # In Both feed rate modes the movement lengths should be the same to maintain constant speed throughout the
         # cutting path, as such, both feedrate modes are equivalent in terms of the movement commands
         self.logger.info('Creating new paths with uniform spacing between points')
@@ -255,13 +256,13 @@ class GCodeGenerator(object):
         start = timeit.default_timer()
         path1c, path2c = tool_path.create_path_with_uniform_ratio_spacing(key_points)
         self.logger.info('Took %ss to create new paths with ratio spacing' % (timeit.default_timer() - start))
-        debug_path = ToolPath.ToolPath(path1c, path2c)
+        debug_path = ToolPath(path1c, path2c)
         debug_path.plot_tool_paths()
         debug_path.plot_tool_path_connections(step=1)
 
         if cut_mode is CutLayout.SPLIT_SEGMENT:
-            max_idx_x = geometry.primative.GeometricFunctions.get_index_max_coord(path1c, 'x')
-            max_idx_u = geometry.primative.GeometricFunctions.get_index_max_coord(path2c, 'x')
+            max_idx_x = GeometricFunctions.get_index_max_coord(path1c, 'x')
+            max_idx_u = GeometricFunctions.get_index_max_coord(path2c, 'x')
         else:
             max_idx_x = len(path1c) - 1
             max_idx_u = len(path2c) - 1
@@ -305,7 +306,7 @@ class GCodeGenerator(object):
         return movements, path1c[0], path2c[0]
 
     def create_adaptive_ratio_movements(self, tool_path):
-        enum = CommandLibrary.GCodeCommands
+        enum = command_library.GCodeCommands
         pass
 
     def _save_gcode_file(self, file_path, cmd_list):

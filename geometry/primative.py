@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Point(object):
+class Point():
     """
 
     """
@@ -63,14 +63,16 @@ class Point(object):
         return '(%s, %s, %s)' % (self._coord[0], self._coord[1], self._coord[2],)
 
 
-class Line(object):
-    def __init__(self, a, b, c, x0, y0, z0):
+class Line():
+    def __init__(self, a, b, c, x0, y0, z0, point1, point2):
         self._a = float(a)
         self._b = float(b)
         self._c = float(c)
         self._x0 = float(x0)
         self._y0 = float(y0)
         self._z0 = float(z0)
+        self._p1 = point1
+        self._p2 = point2
 
     def get_extrapolated_point(self, constraint, constraint_dim):
         if constraint_dim == 'x':
@@ -106,11 +108,37 @@ class Line(object):
         b = point2['y'] - y0
         c = point2['z'] - z0
 
-        return Line(a, b, c, x0, y0, z0)
+        return Line(a, b, c, x0, y0, z0, point1, point2)
+
+    def signed_distance_to_point_xy(self, point):
+        """
+
+        :param Point point:
+        :return:
+        """
+
+        x1 = self._a + self._x0
+        y1 = self._b + self._y0
+
+        return (point['x']-self._x0)*(y1 - self._y0) - (point['y'] - self._y0)*(x1 - self._x0)
+
+    def coord_in_range_dim(self, coord, dim):
+        ret_val = False
+        if self._p1[dim] <= coord <= self._p2[dim]:
+            ret_val = True
+        if self._p2[dim] <= coord <= self._p1[dim]:
+            ret_val = True
+        return ret_val
+
+    def plot(self):
+        x1 = self._a + self._x0
+        y1 = self._b + self._y0
+
+        plt.plot([self._x0, x1], [self._y0, y1])
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Plane(object):
+class Plane():
     def __init__(self, x0, y0, z0, a, b, c):
         self._x0 = x0
         self._y0 = y0
@@ -153,7 +181,7 @@ class Plane(object):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Spline(object):
+class Spline():
     def __init__(self, points, closed_loop=True, logger=None):
         if logger is None:
             logger = logging.getLogger()
@@ -397,7 +425,7 @@ class Spline(object):
         raise AttributeError('T(%s) out of range for the given intervals(%s)' % (t, self.segments))
 
 
-class GeometricFunctions(object):
+class GeometricFunctions():
 
     @staticmethod
     def get_point_from_max_coord(path, dim):
@@ -433,7 +461,7 @@ class GeometricFunctions(object):
                 min = path[idx][dim]
                 point = path[idx]
 
-        return point, min
+        return point
 
     @staticmethod
     def get_index_max_coord(path, dim):
@@ -542,3 +570,45 @@ class GeometricFunctions(object):
             raise NotImplementedError('Error: get_point_along_path currently only implemented for a list'
                                       ' of points defining the path')
         return point
+
+    @staticmethod
+    def get_max_thickness(path, dim, ref_dim):
+        """
+
+        :param path:
+        :param dim:
+        :param ref_dim:
+        :return:
+        """
+        thickness = None
+
+        dim = GeometricFunctions._transform_dim(path[0], dim)
+
+        # Get the maximum point along the dimension we are using as a reference.
+        max_point = GeometricFunctions.get_point_from_max_coord(path, ref_dim)
+        min_point = GeometricFunctions.get_point_from_min_coord(path, ref_dim)
+        chord = max_point[ref_dim] - min_point[ref_dim]
+
+        scale = 100 if chord < 10 else 10
+
+        # Subdivide the reference dimension into additional segments for increased resolution. Scale is based off of a
+        # loose estimation of the segments units.
+        for idx in range(0, int(chord*scale)):
+            points = GeometricFunctions.get_points_closest_to_line(path, Line())
+
+        return thickness
+
+    @staticmethod
+    def get_points_closest_to_line(path, line):
+        pass
+
+    @staticmethod
+    def _transform_dim(item, dim):
+        if not isinstance(item, Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
+        return dim

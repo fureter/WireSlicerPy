@@ -13,7 +13,7 @@ from slicer.wire_cutter import WireCutter
 from util import util_functions
 
 
-class STL(object):
+class STL():
     """
 
     """
@@ -89,7 +89,7 @@ class STL(object):
         self.mesh.metadata['units'] = units
 
 
-class WingSegment(object):
+class WingSegment():
     """
 
     """
@@ -172,7 +172,7 @@ class WingSegment(object):
         sweep_offset = self.span * np.sin(np.deg2rad(self.sweep))
         self.logger.info('Offsetting Airfoil by %smm to account for sweep' % sweep_offset)
         if sweep_offset < 0:
-            PointManip.Transform.translate(self.root_airfoil, [-sweep_offset, 0, 0])
+            PointManip.Transform.translate(self.root_airfoil, [sweep_offset, 0, 0])
         else:
             PointManip.Transform.translate(self.tip_airfoil, [sweep_offset, 0, 0])
 
@@ -221,11 +221,11 @@ class WingSegment(object):
 
         :return:
         """
-        leading_edge_root, _ = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+        leading_edge_root = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
         PointManip.Transform.translate(self.root_airfoil, [-leading_edge_root['x'], -leading_edge_root['y'],
                                                            -leading_edge_root['z']])
 
-        leading_edge_tip, _ = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+        leading_edge_tip = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
         PointManip.Transform.translate(self.tip_airfoil, [-leading_edge_tip['x'], -leading_edge_tip['y'],
                                                           -leading_edge_tip['z']])
 
@@ -239,8 +239,8 @@ class WingSegment(object):
             self.logger.warning('Wing Segment has not been prepped for slicing, '
                                 'run prep_for_slicing() before centering')
         else:
-            point_root, _ = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
-            point_tip, _ = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+            point_root = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+            point_tip = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
 
             center = wire_cutter.wire_length/2
             wing_half = self.span/2
@@ -319,3 +319,14 @@ class WingSegment(object):
         :return:
         """
         self.washout = washout
+
+    def thickness_ratio(self):
+        """
+
+
+        :return:
+        """
+        root_thickness = GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
+        tip_thickness = GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
+
+        return root_thickness/self.root_chord, tip_thickness/self.tip_chord

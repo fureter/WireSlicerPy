@@ -9,10 +9,11 @@ from geometry.primative import Point
 from geometry.primative import Line
 from geometry.primative import GeometricFunctions
 from geometry.complex import WingSegment
+from geometry.spatial_manipulation import PointManip
 from slicer.wire_cutter import WireCutter
 
 
-class ToolPath(object):
+class ToolPath():
     """Class defining tool path motion for dual gantry cnc wire cutters. Consists of lists of points for Gantry 1 and
     Gantry 2.
 
@@ -37,6 +38,21 @@ class ToolPath(object):
         if logger is None:
             logger = logging.getLogger()
         self.logger = logger
+
+    def zero_forwards_path_for_cutting(self):
+        """
+        Shifts the points of both gantry paths so that the most forward path is at X=0.
+
+        :return:
+        """
+
+        minimum_point = min([GeometricFunctions.get_point_from_min_coord(self._path1, 'x')['x'],
+                             GeometricFunctions.get_point_from_min_coord(self._path2, 'x')['x']])
+
+        offset = -minimum_point
+
+        PointManip.Transform.translate(self._path1, [offset, 0, 0])
+        PointManip.Transform.translate(self._path2, [offset, 0, 0])
 
     def plot_tool_paths(self):
         """PLots the two gantry tool paths as 2d paths on the x-y plane."""
@@ -91,7 +107,7 @@ class ToolPath(object):
 
     @staticmethod
     def create_tool_path_from_two_splines(spline1, spline2, wire_cutter):
-        """Creates a tool path from two splines and a wire_cutter object.
+        """Creates a tool path from two splines and a wire_cutter .
 
         :param Spline spline1: Spline for cut profile 1.
         :param Spline spline2: Spline for cut profile 2.
@@ -145,7 +161,6 @@ class ToolPath(object):
             point2 = Point(x2[val], y2[val], z2[val])
 
             line = Line.line_from_points(point1, point2)
-            print('Point1: %s, Point2: %s' % (point1, point2))
             gantry1_point = line.get_extrapolated_point(0, 'z')
             gantry2_point = line.get_extrapolated_point(wire_cutter.wire_length, 'z')
 
