@@ -81,8 +81,8 @@ class PointManip():
         center = Point(center[0], center[1], center[2])
 
         start_polar = timeit.default_timer()
-        sorted_points = PointManip._complex_polar_sort(points, center)
-        stop_polar = timeit.default_timer()
+        sorted_points = PointManip._complex_polar_sort(points)
+        print('Took %ss to complete complex_polar_sort' % (timeit.default_timer() - start_polar))
 
         return np.array(sorted_points)
 
@@ -102,9 +102,9 @@ class PointManip():
         return sorted_points
 
     @staticmethod
-    def _complex_polar_sort(points, center):
+    def _complex_polar_sort(points):
         sorted_points = list()
-        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=7, points=points)
+        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=15, points=points)
         tol = 10.0
         step = -tol/2
         check_angle = 90

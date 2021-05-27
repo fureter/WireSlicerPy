@@ -1,0 +1,1 @@
+C:\Users\FurEt\AppData\Local\Programs\Python\Python39\Scripts\pylint.exe C:\Users\FurEt\PycharmProjects\WireSlicerPy\ -r y --rcfile C:\Users\FurEt\PycharmProjects\WireSlicerPy\.pylintrc > C:\Users\FurEt\PycharmProjects\WireSlicerPy\pylint_report.txt

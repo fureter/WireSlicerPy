@@ -1,3 +1,5 @@
+import abc
+from abc import ABC
 import sys
 import os
 import csv
@@ -63,7 +65,14 @@ class Point():
         return '(%s, %s, %s)' % (self._coord[0], self._coord[1], self._coord[2],)
 
 
-class Line():
+class Section(ABC):
+
+    @abc.abstractmethod
+    def get_path(self):
+        raise NotImplementedError('Base class Section does not implement get_path')
+
+
+class Line(Section):
     def __init__(self, a, b, c, x0, y0, z0, point1, point2):
         self._a = float(a)
         self._b = float(b)
@@ -97,6 +106,16 @@ class Line():
             raise ValueError('Invalid constraint dim specified: %s, needs to be [x,y, or z]\r\n' % constraint_dim)
 
         return Point(x, y, z)
+
+    def get_path(self):
+        """
+        Returns the two points (x0, y0, z0) and (a + x0, b + y0, c + z0) used to form the Line.
+        :return: Two points used to form the Line.
+        """
+        x1 = self._a + self._x0
+        y1 = self._b + self._y0
+        z1 = self._c + self._z0
+        return [Point(self._x0, self._y0, self._z0), Point(x1, y1, z1)]
 
     @staticmethod
     def line_from_points(point1, point2):
@@ -181,11 +200,13 @@ class Plane():
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Spline():
-    def __init__(self, points, closed_loop=True, logger=None):
+class Spline(Section):
+    def __init__(self, points, closed_loop=True, logger=None, resolution=2):
         if logger is None:
             logger = logging.getLogger()
         self.logger = logger
+
+        self.resolution = resolution
 
         self._points = points
         if closed_loop:
@@ -210,9 +231,9 @@ class Spline():
         self.cz = np.zeros(self.segments)
         self.dz = np.zeros(self.segments)
 
-        self._calculate_coefficents()
+        self._calculate_coefficients()
 
-    def _calculate_coefficents(self):
+    def _calculate_coefficients(self):
         # loop through the 3 dimensions to get coefficients for x, y, and z
         for i in range(0, 3):
             num_points = len(self._points)
@@ -365,6 +386,9 @@ class Spline():
             points.append(Point(x[i], y[i], z[i]))
 
         return points
+
+    def get_path(self):
+        return self.get_points(resolution=self.resolution)
 
     def plot_spline(self):
         (x, y, z) = self.get_x_y_z()

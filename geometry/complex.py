@@ -13,6 +13,40 @@ from slicer.wire_cutter import WireCutter
 from util import util_functions
 
 
+class CrossSection():
+    """
+    Contains a list of sections. Sections are any geometry that has a get_path function.
+    """
+    def __init__(self, section_list):
+        self._section_list = section_list
+
+    def __getitem__(self, item):
+        if item < len(self._section_list):
+            return self._section_list[item]
+        else:
+            raise ValueError('Error Index of %s out of range of length %s' % (item, len(self._section_list)))
+
+    def add_section(self, section):
+        self._section_list.append(section)
+
+    @property
+    def section_list(self):
+        return self._section_list
+
+
+class SectionLink():
+    """
+    Defines connection paths between CrossSections
+    """
+    def __init__(self, start_point, end_point, cut_speed):
+        self.start_point = start_point
+        self.end_point = end_point
+        self.cut_speed = cut_speed
+
+    def get_movement(self):
+        return self.end_point - self.start_point
+
+
 class STL():
     """
 

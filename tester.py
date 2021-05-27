@@ -32,7 +32,7 @@ def main():
     naca0009_file_path = r'assets/Airfoils/naca0009.dat'
 
     ag35_file_path = r'assets/Airfoils/ag35.dat'
-    s5020_file_path = r'assets/Airfoils/ah7476.dat'
+    s5020_file_path = r'assets/Airfoils/s5020.dat'
 
     s5020_data = Dat(filepath=s5020_file_path)
     s5020_data.plot_points_2d()
