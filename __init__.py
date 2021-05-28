@@ -5,3 +5,5 @@ from . import g_code
 from . import geometry
 from . import slicer
 from . import util
+
+from . import tests

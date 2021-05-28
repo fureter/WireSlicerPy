@@ -1,6 +1,6 @@
 """
     Modules to handle differnent functionality revolving around CNC Hotwire cutting and generating slices from 3D
-    geometry for template creation.
+    test_geometry for template creation.
 
     Goal: Streamline the process of manufacturing complex 3D objects using CNC hotwire cutters, or by generating
     printable templates.
@@ -17,5 +17,16 @@
     6. Convert spline group placements on a plane to G-Code to move two independent CNC Gantries
     7. Parse STL files representing closed 3D bodies to generate spline groups
 
+    Dependencies:
+    -Numpy
+    -Scipy
+    -matplotlib
+    -trimesh
+    -shapely
+    -pyglet
+
+    Optional:
+    -coverage
+    -pylint
 
 """

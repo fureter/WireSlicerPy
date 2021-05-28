@@ -87,20 +87,20 @@ def main():
     # plt.axis('equal')
     # plt.show()
 
-    # test_stl = STL(file_path=r'./assets/STLs/drop_ship_85sweep.stl',
-    #                logger=logger, units='m')
-    # test_stl.mesh.convert_units('mm')
-    # # test_stl.plot_stl()
-    # normal = np.array([1, 0, 0])
-    # bounding_box = test_stl.mesh.bounds
-    # logger.info('Bounds: %s' % bounding_box)
-    # scale = 0.999 if bounding_box[0][0] < 0 else 1.001
-    # extent = bounding_box[0] * normal*scale
-    # slice_plane = Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
-    # test_stl.slice_into_cross_sections(origin_plane=slice_plane, spacing=25)
-    # test_stl.plot_cross_sections(bounding_box)
-    #
-    # plt.show()
+    test_stl = STL(file_path=r'./assets/STLs/drop_ship_85sweep.stl',
+                   logger=logger, units='m')
+    test_stl.mesh.convert_units('mm')
+    test_stl.plot_stl()
+    normal = np.array([1, 0, 0])
+    bounding_box = test_stl.mesh.bounds
+    logger.info('Bounds: %s' % bounding_box)
+    scale = 0.999 if bounding_box[0][0] < 0 else 1.001
+    extent = bounding_box[0] * normal*scale
+    slice_plane = Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
+    test_stl.slice_into_cross_sections(origin_plane=slice_plane, spacing=25)
+    test_stl.plot_cross_sections(bounding_box)
+
+    plt.show()
 
 
 main()

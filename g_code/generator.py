@@ -57,8 +57,8 @@ class GCodeGenerator():
 
     # TODO: This code was not thought out well for future feature addition. Needs to be made more abstract to support
     #  multiple toolpath links (Segment Cut for example which was just slapped in below, or spars)
-    #  The cut_mode and linking of toolpaths really belong in the slicer sub-package, Generator should only really
-    #  be handling taking the toolpath and turning it into g_code for the given wire_cutter
+    #  The cut_mode and linking of toolpaths really belong in the test_slicer sub-package, Generator should only really
+    #  be handling taking the toolpath and turning it into test_g_code for the given wire_cutter
     def create_relative_gcode(self, file_path, tool_path, key_points=None, cut_mode=CutLayout.CONSTANT_CUT):
         """
 

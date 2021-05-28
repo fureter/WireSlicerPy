@@ -27,9 +27,9 @@ class WireCutter():
         self.axis_def = axis_def
 
     def set_gcode_statup(self, g_code):
-        """Sets the initializing g_code for the machine.
+        """Sets the initializing test_g_code for the machine.
 
-        :param g_code: Initial g_code entries at the beginning of generated g_code file.
+        :param g_code: Initial test_g_code entries at the beginning of generated test_g_code file.
         :type g_code: list[str].
         """
         self.start_up_gcode = g_code

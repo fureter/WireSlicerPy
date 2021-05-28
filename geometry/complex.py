@@ -5,17 +5,15 @@ import numpy as np
 import trimesh as tm
 from matplotlib import pyplot as plt
 
-from .primative import Point
-from .primative import Plane
-from .primative import GeometricFunctions
-from .spatial_manipulation import PointManip
+import geometry.primative
+from geometry.spatial_manipulation import PointManip
 from slicer.wire_cutter import WireCutter
 from util import util_functions
 
 
 class CrossSection():
     """
-    Contains a list of sections. Sections are any geometry that has a get_path function.
+    Contains a list of sections. Sections are any test_geometry that has a get_path function.
     """
     def __init__(self, section_list):
         self._section_list = section_list
@@ -186,13 +184,13 @@ class WingSegment():
             self._rotated = False
 
         # Check if the root airfoil chord matches the desired root chord, if not, scale it to match
-        _, actual_root_chord = GeometricFunctions.get_point_from_max_coord(self.root_airfoil, 'x')
+        _, actual_root_chord = geometry.primative.GeometricFunctions.get_point_from_max_coord(self.root_airfoil, 'x')
         if actual_root_chord != self.root_chord:
             scale = self.root_chord / actual_root_chord
             PointManip.Transform.scale(self.root_airfoil, [scale, scale, 1])
 
         # Check if the tip airfoil chord matches the desired tip chord, if not, scale it to match
-        _, actual_tip_chord = GeometricFunctions.get_point_from_max_coord(self.tip_airfoil, 'x')
+        _, actual_tip_chord = geometry.primative.GeometricFunctions.get_point_from_max_coord(self.tip_airfoil, 'x')
         if actual_tip_chord != self.tip_chord:
             scale = self.tip_chord / actual_tip_chord
             PointManip.Transform.scale(self.tip_airfoil, [scale, scale, 1])
@@ -255,11 +253,11 @@ class WingSegment():
 
         :return:
         """
-        leading_edge_root = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+        leading_edge_root = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
         PointManip.Transform.translate(self.root_airfoil, [-leading_edge_root['x'], -leading_edge_root['y'],
                                                            -leading_edge_root['z']])
 
-        leading_edge_tip = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+        leading_edge_tip = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
         PointManip.Transform.translate(self.tip_airfoil, [-leading_edge_tip['x'], -leading_edge_tip['y'],
                                                           -leading_edge_tip['z']])
 
@@ -273,8 +271,8 @@ class WingSegment():
             self.logger.warning('Wing Segment has not been prepped for slicing, '
                                 'run prep_for_slicing() before centering')
         else:
-            point_root = GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
-            point_tip = GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+            point_root = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+            point_tip = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
 
             center = wire_cutter.wire_length/2
             wing_half = self.span/2
@@ -360,7 +358,7 @@ class WingSegment():
 
         :return:
         """
-        root_thickness = GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
-        tip_thickness = GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
+        root_thickness = geometry.primative.GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
+        tip_thickness = geometry.primative.GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
 
         return root_thickness/self.root_chord, tip_thickness/self.tip_chord

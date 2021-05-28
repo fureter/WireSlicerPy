@@ -84,28 +84,53 @@ class Line(Section):
         self._p2 = point2
 
     def get_extrapolated_point(self, constraint, constraint_dim):
+        """
+        Returns a point along the line at position `constraint` along the axis `constraint_dim`.
+
+        :param float or int constraint: Position along the line to probe for a point.
+        :param str or int constraint_dim: Axis relative to the line to test for a point.
+        :return: Returns the point at `constraint` along the line at dimension `constraint_dim`, or returns
+            None if the `constraint` and `constraint_dim` are not along the line.
+        :rtype: None or Point.
+        """
+        ret_val = None
+        x = None
+        y = None
+        z = None
+
         if constraint_dim == 'x':
-            val = (constraint - self._x0) / self._a
+            if self._a == 0.0:
+                print('Warning: Point constraint is not along Line in the given dimension')
+            else:
+                val = (constraint - self._x0) / self._a
 
-            x = constraint
-            y = val * self._b + self._y0
-            z = val * self._c + self._z0
+                x = constraint
+                y = val * self._b + self._y0
+                z = val * self._c + self._z0
         elif constraint_dim == 'y':
-            val = (constraint - self._y0) / self._b
+            if self._b == 0.0:
+                print('Warning: Point constraint is not along Line in the given dimension')
+            else:
+                val = (constraint - self._y0) / self._b
 
-            x = val * self._a + self._x0
-            y = constraint
-            z = val * self._c + self._z0
+                x = val * self._a + self._x0
+                y = constraint
+                z = val * self._c + self._z0
         elif constraint_dim == 'z':
-            val = (constraint - self._z0) / self._c
+            if self._c == 0.0:
+                print('Warning: Point constraint is not along Line in the given dimension')
+            else:
+                val = (constraint - self._z0) / self._c
 
-            x = val * self._a + self._x0
-            y = val * self._b + self._y0
-            z = constraint
+                x = val * self._a + self._x0
+                y = val * self._b + self._y0
+                z = constraint
         else:
             raise ValueError('Invalid constraint dim specified: %s, needs to be [x,y, or z]\r\n' % constraint_dim)
+        if x is not None and y is not None and z is not None:
+            ret_val = Point(x, y, z)
 
-        return Point(x, y, z)
+        return ret_val
 
     def get_path(self):
         """
@@ -119,6 +144,13 @@ class Line(Section):
 
     @staticmethod
     def line_from_points(point1, point2):
+        """
+        Takes two points and forms a line in the form of:
+        x-x0/a = y-y0/b = z-z0/c
+
+        :param Point point1: Origin starting point. point1 is used to obtain x0, y0, z0
+        :param Point point2: Offset point from the origin, used to find a, b, c.
+        """
         x0 = point1['x']
         y0 = point1['y']
         z0 = point1['z']

@@ -4,11 +4,12 @@ import timeit
 import numpy as np
 import matplotlib.pyplot as plt
 
-from geometry.primative import Spline
-from geometry.primative import Point
-from geometry.primative import Line
-from geometry.primative import GeometricFunctions
-from geometry.complex import WingSegment
+# from geometry.primative import Spline
+# from geometry.primative import Point
+# from geometry.primative import Line
+# from geometry.primative import GeometricFunctions
+import geometry.primative as prim
+import geometry.complex as compx
 from geometry.spatial_manipulation import PointManip
 from slicer.wire_cutter import WireCutter
 
@@ -28,9 +29,9 @@ class ToolPath():
         """Constructor for tool path, should not be directly called, use create_* functions to generate tool paths.
 
         :param path1: Gantry 1 path.
-        :type path1: list[Point]
+        :type path1: list[prim.Point]
         :param path2: Gantry 2 path.
-        :type path2: list[Point]
+        :type path2: list[prim.Point]
         """
         self._path1 = path1
         self._path2 = path2
@@ -46,8 +47,8 @@ class ToolPath():
         :return:
         """
 
-        minimum_point = min([GeometricFunctions.get_point_from_min_coord(self._path1, 'x')['x'],
-                             GeometricFunctions.get_point_from_min_coord(self._path2, 'x')['x']])
+        minimum_point = min([prim.GeometricFunctions.get_point_from_min_coord(self._path1, 'x')['x'],
+                             prim.GeometricFunctions.get_point_from_min_coord(self._path2, 'x')['x']])
 
         offset = -minimum_point
 
@@ -100,7 +101,7 @@ class ToolPath():
     def create_tool_path_from_wing_segment(wing, wire_cutter):
         """
 
-        :param WingSegment wing:
+        :param compx.WingSegment wing:
         :return:
         """
         return ToolPath.create_tool_path_from_paths(wing.root_airfoil, wing.tip_airfoil, wire_cutter=wire_cutter)
@@ -157,10 +158,10 @@ class ToolPath():
         # for every point pair in point list 1 and 2, form a line connecting the two, and interpolate this line to the
         # two gantry plane positions to get the points along the gantry tool path
         for val in t:
-            point1 = Point(x1[val], y1[val], z1[val])
-            point2 = Point(x2[val], y2[val], z2[val])
+            point1 = prim.Point(x1[val], y1[val], z1[val])
+            point2 = prim.Point(x2[val], y2[val], z2[val])
 
-            line = Line.line_from_points(point1, point2)
+            line = prim.Line.line_from_points(point1, point2)
             gantry1_point = line.get_extrapolated_point(0, 'z')
             gantry2_point = line.get_extrapolated_point(wire_cutter.wire_length, 'z')
 
@@ -185,8 +186,8 @@ class ToolPath():
 
     def get_key_points_for_wing(self):
         key_points = list()
-        point1, _ = GeometricFunctions.get_point_from_max_coord(self._path1, 'x')
-        point2, _ = GeometricFunctions.get_point_from_max_coord(self._path2, 'x')
+        point1, _ = prim.GeometricFunctions.get_point_from_max_coord(self._path1, 'x')
+        point2, _ = prim.GeometricFunctions.get_point_from_max_coord(self._path2, 'x')
         key_points.append((point1, point2))
         return key_points
 
@@ -213,10 +214,10 @@ class ToolPath():
 
         self.logger.info('Getting Lengths of each path')
         start = timeit.default_timer()
-        length_path1 = GeometricFunctions.path_length(self._path1)
+        length_path1 = prim.GeometricFunctions.path_length(self._path1)
         self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
         start = timeit.default_timer()
-        length_path2 = GeometricFunctions.path_length(self._path2)
+        length_path2 = prim.GeometricFunctions.path_length(self._path2)
 
         self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
 
@@ -235,7 +236,7 @@ class ToolPath():
         start = timeit.default_timer()
         while curr_dist < length_path1:
             curr_dist += min_dist
-            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist)
+            point = prim.GeometricFunctions.get_point_along_path(self._path1, curr_dist)
             path1.append(point)
         self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
 
@@ -245,7 +246,7 @@ class ToolPath():
         start = timeit.default_timer()
         while curr_dist < length_path2:
             curr_dist += min_dist
-            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist)
+            point = prim.GeometricFunctions.get_point_along_path(self._path2, curr_dist)
             path2.append(point)
         self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
 
@@ -259,8 +260,8 @@ class ToolPath():
         self.logger.info('Minimum distance in either path is: %smm' % min_dist)
 
         start = timeit.default_timer()
-        spline1 = Spline(self._path1)
-        spline2 = Spline(self._path2)
+        spline1 = prim.Spline(self._path1)
+        spline2 = prim.Spline(self._path2)
         self.logger.info('Took %ss to create splines for path 1 and path 2' % (timeit.default_timer() - start))
 
         self.logger.info('Getting Lengths of each path')
@@ -372,10 +373,10 @@ class ToolPath():
         path2 = list()
         self.logger.info('Getting Lengths of each path')
         start = timeit.default_timer()
-        length_path1 = GeometricFunctions.path_length_from_point_to_point(self._path1, start_point[0], end_point[0])
+        length_path1 = prim.GeometricFunctions.path_length_from_point_to_point(self._path1, start_point[0], end_point[0])
         self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
         start = timeit.default_timer()
-        length_path2 = GeometricFunctions.path_length_from_point_to_point(self._path2, start_point[1], end_point[1])
+        length_path2 = prim.GeometricFunctions.path_length_from_point_to_point(self._path2, start_point[1], end_point[1])
 
         self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
 
@@ -388,7 +389,7 @@ class ToolPath():
         start = timeit.default_timer()
         while curr_dist < length_path1:
             curr_dist += length_path1 / 100
-            point = GeometricFunctions.get_point_along_path(self._path1, curr_dist, start_point=start_point[0])
+            point = prim.GeometricFunctions.get_point_along_path(self._path1, curr_dist, start_point=start_point[0])
             path1.append(point)
         self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
 
@@ -398,7 +399,7 @@ class ToolPath():
         start = timeit.default_timer()
         while curr_dist < length_path2:
             curr_dist += length_path2 / 100
-            point = GeometricFunctions.get_point_along_path(self._path2, curr_dist, start_point=start_point[1])
+            point = prim.GeometricFunctions.get_point_along_path(self._path2, curr_dist, start_point=start_point[1])
             path2.append(point)
         self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
 
