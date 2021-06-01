@@ -30,3 +30,17 @@
     -pylint
 
 """
+
+import logging
+import sys
+
+
+def setep():
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+
+    logging.getLogger('matplotlib.font_manager').disabled = True

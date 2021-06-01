@@ -5,6 +5,7 @@ import copy
 import numpy as np
 import matplotlib.pyplot as plt
 
+import wire_slicer
 from slicer.wire_cutter import WireCutter
 from slicer.tool_path import ToolPath
 from geometry.parser import Dat
@@ -19,14 +20,9 @@ from g_code.generator import TravelType
 
 
 def main():
+    wire_slicer.setep()
+
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-
-    logging.getLogger('matplotlib.font_manager').disabled = True
 
     file_path = r'assets/Airfoils/MH70.dat'
     naca0009_file_path = r'assets/Airfoils/naca0009.dat'

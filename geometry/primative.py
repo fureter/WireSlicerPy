@@ -18,12 +18,6 @@ class Point():
     def __init__(self, x, y, z):
         self._coord = np.array([x, y, z], dtype=np.float)
 
-    def __get__(self, instance, owner):
-        return self._coord
-
-    def __set__(self, instance, value):
-        self._coord = value
-
     def __getitem__(self, item):
         if isinstance(item, str):
             ret_val = {'x': self._coord[0],
@@ -53,10 +47,18 @@ class Point():
     def __add__(self, other):
         if isinstance(other, Point):
             return Point(self._coord[0] + other['x'], self._coord[1] + other['y'], self._coord[2] + other['z'])
+        elif isinstance(other, float) or isinstance(other, int):
+            return Point(self._coord[0] + other, self._coord[1] + other, self._coord[2] + other)
+        else:
+            raise TypeError('Error: Point addition does not support Type: %s' % type(other))
 
     def __sub__(self, other):
         if isinstance(other, Point):
             return Point(self._coord[0] - other['x'], self._coord[1] - other['y'], self._coord[2] - other['z'])
+        elif isinstance(other, float) or isinstance(other, int):
+            return Point(self._coord[0] - other, self._coord[1] - other, self._coord[2] - other)
+        else:
+            raise TypeError('Error: Point subtraction does not support Type: %s' % type(other))
 
     def __pow__(self, power, modulo=None):
         return self._coord[0] ** power + self._coord[1] ** power + self._coord[2] ** power
@@ -73,7 +75,7 @@ class Section(ABC):
 
 
 class Line(Section):
-    def __init__(self, a, b, c, x0, y0, z0, point1, point2):
+    def __init__(self, a, b, c, x0, y0, z0, point1, point2, logger=None):
         self._a = float(a)
         self._b = float(b)
         self._c = float(c)
@@ -82,6 +84,10 @@ class Line(Section):
         self._z0 = float(z0)
         self._p1 = point1
         self._p2 = point2
+
+        if logger is None:
+            logger = logging.getLogger()
+        self.logger = logger
 
     def get_extrapolated_point(self, constraint, constraint_dim):
         """
@@ -100,7 +106,7 @@ class Line(Section):
 
         if constraint_dim == 'x':
             if self._a == 0.0:
-                print('Warning: Point constraint is not along Line in the given dimension')
+                self.logger.warning('Warning: Point constraint is not along Line in the given dimension')
             else:
                 val = (constraint - self._x0) / self._a
 
@@ -109,7 +115,7 @@ class Line(Section):
                 z = val * self._c + self._z0
         elif constraint_dim == 'y':
             if self._b == 0.0:
-                print('Warning: Point constraint is not along Line in the given dimension')
+                self.logger.warning('Warning: Point constraint is not along Line in the given dimension')
             else:
                 val = (constraint - self._y0) / self._b
 
@@ -118,7 +124,7 @@ class Line(Section):
                 z = val * self._c + self._z0
         elif constraint_dim == 'z':
             if self._c == 0.0:
-                print('Warning: Point constraint is not along Line in the given dimension')
+                self.logger.warning('Warning: Point constraint is not along Line in the given dimension')
             else:
                 val = (constraint - self._z0) / self._c
 
@@ -181,7 +187,7 @@ class Line(Section):
             ret_val = True
         return ret_val
 
-    def plot(self):
+    def plot(self):  # pragma: no cover
         x1 = self._a + self._x0
         y1 = self._b + self._y0
 
@@ -339,7 +345,7 @@ class Spline(Section):
         t = 0 + dt
         length = 0
 
-        while t < self.segments:
+        while t < self.segments+1:
             pos = t
             pos_m = t - dt
             indx = self._get_segment(pos)
@@ -390,12 +396,15 @@ class Spline(Section):
 
         return point, curr_seg, length
 
-    def get_x_y_z(self, resolution=10, fixed_distance=None):
+    def get_x_y_z(self, resolution=None):
         """
 
         :param resolution:
         :return:
         """
+        if resolution is None:
+            resolution = self.resolution
+
         x = np.zeros(self.segments * resolution + 1)
         y = np.zeros(self.segments * resolution + 1)
         z = np.zeros(self.segments * resolution + 1)
@@ -410,7 +419,10 @@ class Spline(Section):
 
         return x, y, z
 
-    def get_points(self, resolution=10):
+    def get_points(self, resolution=None):
+        if resolution is None:
+            resolution = self.resolution
+
         x, y, z = self.get_x_y_z(resolution=resolution)
 
         points = list()
