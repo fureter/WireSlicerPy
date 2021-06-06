@@ -14,6 +14,7 @@ class Point():
     """
 
     """
+    EQUAL_TOL = 1E-8
 
     def __init__(self, x, y, z):
         self._coord = np.array([x, y, z], dtype=np.float)
@@ -42,7 +43,9 @@ class Point():
 
     def __eq__(self, other):
         if isinstance(other, Point):
-            return (other['x'] == self['x']) and (other['y'] == self['y']) and (other['z'] == self['z'])
+            return abs(other['x'] - self['x']) < Point.EQUAL_TOL \
+                   and abs(other['y'] - self['y']) < Point.EQUAL_TOL\
+                   and abs(other['z'] - self['z']) < Point.EQUAL_TOL
 
     def __add__(self, other):
         if isinstance(other, Point):
@@ -72,6 +75,22 @@ class Section(ABC):
     @abc.abstractmethod
     def get_path(self):
         raise NotImplementedError('Base class Section does not implement get_path')
+
+
+class SectionLink(Section):
+    """
+    Used to define connections between CrossSections
+    """
+    def __init__(self, start_point, end_point, fast_cut):
+        self.start_point = start_point
+        self.end_point = end_point
+        self.fast_cut = fast_cut
+
+    def get_movement(self):
+        return self.end_point - self.start_point
+
+    def get_path(self):
+        return [self.start_point, self.end_point]
 
 
 class Line(Section):
@@ -157,6 +176,7 @@ class Line(Section):
         :param Point point1: Origin starting point. point1 is used to obtain x0, y0, z0
         :param Point point2: Offset point from the origin, used to find a, b, c.
         """
+        logger = logging.getLogger(__name__)
         x0 = point1['x']
         y0 = point1['y']
         z0 = point1['z']
@@ -192,6 +212,14 @@ class Line(Section):
         y1 = self._b + self._y0
 
         plt.plot([self._x0, x1], [self._y0, y1])
+
+
+class Path(Section):
+    def __init__(self, points):
+        self.path = points
+
+    def get_path(self):
+        return self.path
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -594,8 +622,8 @@ class GeometricFunctions():
                     valid_region = False
             if length == 0:
                 print(point_1)
-                raise ValueError('Error: Key Point 1: %s was never found on the path with start point: %s' %
-                                 (point_1, path[0]))
+                raise ValueError('Error: Key Point 1: %s Point 2: %s was never found on the path with start point: %s' %
+                                 (point_1, point_2, path[0]))
         else:
             raise NotImplementedError('Error: path_length is currently only implemented for a list of points defining'
                                       ' the path')
@@ -669,6 +697,65 @@ class GeometricFunctions():
     @staticmethod
     def get_points_closest_to_line(path, line):
         pass
+
+    @staticmethod
+    def normalize_path_points(path, num_points):
+        """
+
+        :param list[Point] path:
+        :param int or float num_points:
+        :return:
+        """
+        path_length = GeometricFunctions.path_length(path)
+
+        path1 = list()
+
+        path1.append(path[0])
+
+        delta_dist = path_length / num_points
+        curr_dist = delta_dist
+        while curr_dist < path_length:
+            point = GeometricFunctions.get_point_along_path(path, curr_dist)
+            path1.append(point)
+            curr_dist += delta_dist
+
+
+        GeometricFunctions.plot_path(path1, color='g')
+        plt.title('normalized_path')
+        plt.show()
+
+        return path1
+
+    @staticmethod
+    def path_to_csv(path, file_path):
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(file_path, 'w', newline='') as csv_file:
+            field_names = ['index', 'x', 'y', 'z']
+            writer = csv.DictWriter(csv_file, fieldnames=field_names)
+            writer.writeheader()
+            for index in range(0, len(path)):
+                writer.writerow({
+                    'index': index,
+                    'x': path[index]['x'],
+                    'y': path[index]['y'],
+                    'z': path[index]['z']
+                })
+
+    @staticmethod
+    def plot_path(path, color):
+        len_path = len(path)
+
+        x = np.zeros(len_path)
+        y = np.zeros(len_path)
+
+        for i in range(0, len_path):
+            x[i] = path[i]['x']
+            y[i] = path[i]['y']
+
+        plt.plot(x, y, color)
+        plt.scatter(x, y)
 
     @staticmethod
     def _transform_dim(item, dim):

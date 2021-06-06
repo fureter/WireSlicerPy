@@ -55,15 +55,11 @@ class GCodeGenerator():
         else:
             raise NotImplementedError('Selected travel type of %s is not implemented' % travel_type)
 
-    # TODO: This code was not thought out well for future feature addition. Needs to be made more abstract to support
-    #  multiple toolpath links (Segment Cut for example which was just slapped in below, or spars)
-    #  The cut_mode and linking of toolpaths really belong in the test_slicer sub-package, Generator should only really
-    #  be handling taking the toolpath and turning it into test_g_code for the given wire_cutter
-    def create_relative_gcode(self, file_path, tool_path, key_points=None, cut_mode=CutLayout.CONSTANT_CUT):
+    def create_relative_gcode(self, file_path, tool_path):
         """
 
         :param file_path:
-        :param tool_path tool_path:
+        :param ToolPath tool_path:
         :param list[Point] key_points:
         :param int cut_mode: Defines how the toolpath should be sliced.
         :return:
@@ -71,13 +67,6 @@ class GCodeGenerator():
         self.logger.info('Creating relative gcode with travel type: %s at location: %s' %
                          (TravelType.to_str(self._travel_type), file_path))
         cmd_list = list()
-        # TODO: This really should've been planned out better, working in absolute coordinates is so much easier, with
-        #  relative coordinates every move should've been planned out in advance, not adding movements in the
-        #  moment
-        curr_x = 0
-        curr_y = 0
-        curr_u = 0
-        curr_z = 0
 
         if self._wire_cutter.start_up_gcode:
             cmd_list.extend(self._wire_cutter.start_up_gcode)
@@ -90,117 +79,45 @@ class GCodeGenerator():
         cmd_list.append(enum.set_feed_rate(self._wire_cutter.min_speed))
 
         enum = command_library.GCodeCommands.MovementCommand
-        start_height = self._wire_cutter.start_height
-        start_depth = self._wire_cutter.start_depth
-        cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(0.0, start_height, 0.0, start_height)))
-        cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_depth, 0.0, start_depth, 0.0)))
-        curr_x += start_depth
-        curr_u += start_depth
-        curr_y += start_height
-        curr_z += start_height
 
-        if self._travel_type == TravelType.CONSTANT_SPEED:
-            movement_list, start_point1, start_point2 = self.create_constant_speed_movements(tool_path, cut_mode)
-        elif self._travel_type == TravelType.CONSTANT_RATIO:
-            movement_list, start_point1, start_point2 = self.create_constant_ratio_movements(tool_path, key_points,
-                                                                                             cut_mode)
-        elif self._travel_type == TravelType.ADAPTIVE_RATIO:
-            raise NotImplementedError('Adaptive Ratio is not currently implemented')
-        else:
-            raise ValueError('Travel Type of %s is invalid' % self._travel_type)
+        movement_list = tool_path.get_relative_movement_list()
 
-        cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_point1['x'], start_point1['y'],
-                                                                              start_point2['x'], start_point2['y'])))
-        curr_x += start_point1['x']
-        curr_u += start_point2['x']
-        curr_y += start_point1['y']
-        curr_z += start_point2['y']
-
-        for movement in movement_list[0]:
+        for movement in movement_list:
             cmd_list.append(enum.g1_linear_move(
                 self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
-            curr_x += movement[0]
-            curr_u += movement[2]
-            curr_y += movement[1]
-            curr_z += movement[3]
 
-        if cut_mode is CutLayout.SPLIT_SEGMENT and len(movement_list) == 2:
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_depth, 0.0, start_depth, 0.0)))
-            curr_x += start_depth
-            curr_u += start_depth
+        self._save_gcode_file(file_path, cmd_list)
 
-            release_height = self._wire_cutter.release_height
-            # If the cut mode is Split Segment then two movement lists should've been returned by the above creator
-            # functions. Move the wire back to the start of the cut and do the second cut path.
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                0, release_height, 0, release_height)))
-            curr_y += release_height
-            curr_z += release_height
+    def create_absolute_gcode(self, file_path, tool_path):
+        """
 
-            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
+        :param file_path:
+        :param ToolPath tool_path:
+        :param list[Point] key_points:
+        :param int cut_mode: Defines how the toolpath should be sliced.
+        :return:
+        """
+        self.logger.info('Creating absolute gcode with travel type: %s at location: %s' %
+                         (TravelType.to_str(self._travel_type), file_path))
+        cmd_list = list()
 
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                -curr_x, 0, -curr_u, 0)))
-            curr_x -= curr_x
-            curr_u -= curr_u
+        if self._wire_cutter.start_up_gcode:
+            cmd_list.extend(self._wire_cutter.start_up_gcode)
 
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                0, -curr_y + start_height, 0, -curr_z + start_height)))
-            curr_y -= curr_y + start_height
-            curr_z -= curr_z + start_height
+        enum = command_library.GCodeCommands.PositionMode
+        cmd_list.append(enum.set_positioning_mode(enum.ABSOLUTE))
 
-            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.min_speed))
+        enum = command_library.GCodeCommands.FeedRate
+        cmd_list.append(enum.set_mode(self._wire_cutter.feed_rate_mode))
+        cmd_list.append(enum.set_feed_rate(self._wire_cutter.min_speed))
 
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_depth, 0.0, start_depth, 0.0)))
-            curr_x += start_depth
-            curr_u += start_depth
+        enum = command_library.GCodeCommands.MovementCommand
 
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_point1['x'],
-                                                                                  start_point1['y'],
-                                                                                  start_point2['x'],
-                                                                                  start_point2['y'])))
-            curr_x += start_point1['x']
-            curr_u += start_point2['x']
-            curr_y += start_point1['y']
-            curr_z += start_point2['y']
+        movement_list = tool_path.get_absolute_movement_list()
 
-            for movement in movement_list[1]:
-                cmd_list.append(enum.g1_linear_move(
-                    self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
-                curr_x += movement[0]
-                curr_u += movement[2]
-                curr_y += movement[1]
-                curr_z += movement[3]
-
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(start_depth, 0.0, start_depth, 0.0)))
-            curr_x += start_depth
-            curr_u += start_depth
-
-            # If the cut mode is Split Segment then two movement lists should've been returned by the above creator
-            # functions. Move the wire back to the start of the cut and do the second cut path.
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                0, release_height, 0, release_height)))
-            curr_y += release_height
-            curr_z += release_height
-
-            cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(self._wire_cutter.max_speed))
-
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                -curr_x, 0, -curr_u, 0)))
-            curr_x -= curr_x
-            curr_u -= curr_u
-
-            cmd_list.append(enum.g1_linear_move(self._wire_cutter.axis_def.format(
-                0, -curr_y + start_height, 0, -curr_z + start_height)))
-            curr_y -= curr_y + start_height
-            curr_z -= curr_z + start_height
-
-        else:
-            # If cut_mode is Constant_cut then the cut is already complete, move the wire out of the work piece.
+        for movement in movement_list:
             cmd_list.append(enum.g1_linear_move(
-                self._wire_cutter.axis_def.format(-start_depth, 0.0, -start_depth, 0.0)))
-            curr_x -= start_depth
-            curr_u -= start_depth
+                self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
 
         self._save_gcode_file(file_path, cmd_list)
 
@@ -292,12 +209,14 @@ class GCodeGenerator():
                 movements[0].append([0, 0, du, dz])
 
         if cut_mode is CutLayout.SPLIT_SEGMENT:
+            i = 0
             for idx in reversed(range(max_idx_u, len(path2c)-1)):
                 du = path2c[idx]['x'] - path2c[idx+1]['x']
                 dz = path2c[idx]['y'] - path2c[idx+1]['y']
-                if idx < len(movements[0]):
-                    movements[1][idx][2] = du
-                    movements[1][idx][3] = dz
+                if i < len(movements[1]):
+                    movements[1][i][2] = du
+                    movements[1][i][3] = dz
+                    i += 1
                 else:
                     movements[1].append([0, 0, du, dz])
 

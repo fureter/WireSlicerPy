@@ -1,8 +1,11 @@
+import copy
 import logging
+import os.path
 import timeit
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 
 # from geometry.primative import Spline
 # from geometry.primative import Point
@@ -170,6 +173,72 @@ class ToolPath():
 
         return ToolPath(path1, path2)
 
+    @staticmethod
+    def create_tool_path_from_cut_path(cut_path, wire_cutter):
+        """
+
+        :param compx.CutPath cut_path:
+        :param WireCutter wire_cutter:
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+        path1w = list()
+        path2w = list()
+        path1 = list()
+        path2 = list()
+
+        if not cut_path.is_valid_cut_path():
+            raise ValueError('Error: Provided CutPath is not a valid CutPath')
+
+        for idx in range(0, len(cut_path.cut_list_1)):
+            cut_lst_1 = copy.deepcopy(cut_path.cut_list_1[idx])
+            cut_lst_2 = copy.deepcopy(cut_path.cut_list_2[idx])
+
+            # If the cut_list is a SectionLink, add the two SectionLink points to the point list, else we normalize the
+            # two CrossSections to a standardizes number of points and append those points to the point list.
+            if isinstance(cut_lst_1, prim.SectionLink):
+                path_1_tmp = cut_lst_1.get_path()
+                path_2_tmp = cut_lst_2.get_path()
+                logger.debug('SectionLink1: %s | SectionLink2: %s' % (path_1_tmp, path_2_tmp))
+                path1w.extend(path_1_tmp)
+                path2w.extend(path_2_tmp)
+            else:
+                num_points = 256
+                tmp_path_1 = prim.GeometricFunctions.normalize_path_points(cut_lst_1.get_path(), num_points=num_points)
+                tmp_path_2 = prim.GeometricFunctions.normalize_path_points(cut_lst_2.get_path(), num_points=num_points)
+                tmp_path_1 = tmp_path_1[0:num_points]
+                tmp_path_2 = tmp_path_2[0:num_points]
+                logger.debug('Normalized Path1 Len: %s | Normalized Path2 Len; %s' % (len(tmp_path_1), len(tmp_path_2)))
+                path1w.extend(tmp_path_1)
+                path2w.extend(tmp_path_2)
+
+        prim.GeometricFunctions.plot_path(path1w, 'k')
+        prim.GeometricFunctions.plot_path(path2w, 'r')
+        plt.show()
+
+        for idx in range(0, len(path1w)):
+            if int(path2w[idx]['y']) == 23:
+                logger.debug('break_point')
+            line = prim.Line.line_from_points(path1w[idx], path2w[idx])
+            logger.debug('*'*80)
+            logger.debug('Point1: %s | Point2: %s' % (path1w[idx], path2w[idx]))
+            gantry1_point = line.get_extrapolated_point(0, 'z')
+            gantry2_point = line.get_extrapolated_point(wire_cutter.wire_length, 'z')
+            logger.debug('Ex Point1: %s | Ex Point2: %s' % (gantry1_point, gantry2_point))
+            logger.debug('Point 1 Diff: %s | Point 2 Diff: %s' % (gantry1_point-path1w[idx], gantry2_point-path2w[idx]))
+            logger.debug('*'*80)
+
+            path1.append(gantry1_point)
+            path2.append(gantry2_point)
+
+        file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'debug')
+        prim.GeometricFunctions.path_to_csv(path1w, file_path=os.path.join(file_path, 'path1w.csv'))
+        prim.GeometricFunctions.path_to_csv(path2w, file_path=os.path.join(file_path, 'path2w.csv'))
+        prim.GeometricFunctions.path_to_csv(path1, file_path=os.path.join(file_path, 'path1.csv'))
+        prim.GeometricFunctions.path_to_csv(path2, file_path=os.path.join(file_path, 'path2.csv'))
+
+        return ToolPath(path1, path2)
+
     def _shortest_distance_in_tool_path(self):
         min_dist = 99999999
         for i in range(0, len(self._path1) - 1):
@@ -205,204 +274,60 @@ class ToolPath():
 
         return max_dist
 
-    def create_path_with_uniform_point_distances(self):
-        start = timeit.default_timer()
-        min_dist = self._shortest_distance_in_tool_path()
-        min_dist = 1
-        self.logger.info('Took %ss to find the minimum spacing in the toolpath' % (timeit.default_timer() - start))
-        self.logger.info('Minimum distance in either path is: %smm' % min_dist)
+    def get_relative_movement_list(self):
+        movement = list()
 
-        self.logger.info('Getting Lengths of each path')
-        start = timeit.default_timer()
-        length_path1 = prim.GeometricFunctions.path_length(self._path1)
-        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
-        start = timeit.default_timer()
-        length_path2 = prim.GeometricFunctions.path_length(self._path2)
+        for idx in range(0, len(self._path1)-1):
+            dx = self._path1[idx+1]['x'] - self._path1[idx]['x']
+            dy = self._path1[idx+1]['y'] - self._path1[idx]['y']
+            movement.append([dx, dy, 0, 0])
 
-        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
+        for idx in range(0, len(self._path2)-1):
+            du = self._path2[idx+1]['x'] - self._path2[idx]['x']
+            dz = self._path2[idx+1]['y'] - self._path2[idx]['y']
+            if idx < len(movement):
+                movement[idx][2] = du
+                movement[idx][3] = dz
+            else:
+                movement.append([0, 0, du, dz])
+        return movement
 
-        self.logger.info('Path 1 Length: %smm' % length_path1)
-        self.logger.info('Path 2 Length: %smm' % length_path2)
+    def get_absolute_movement_list(self):
+        movement = list()
 
-        path1 = list()
-        path2 = list()
+        for idx in range(0, len(self._path1)):
+            movement.append([self._path1[idx]['x'], self._path1[idx]['y'], 0, 0])
 
-        path1.append(self._path1[0])
-        path2.append(self._path2[0])
+        for idx in range(0, len(self._path2)-1):
+            if idx < len(movement):
+                movement[idx][2] = self._path2[idx]['x']
+                movement[idx][3] = self._path2[idx]['y']
+            else:
+                movement.append([0, 0, self._path2[idx]['x'], self._path2[idx]['y']])
+        return movement
 
-        curr_dist = 0
-        idx = 0
-        length = 0
-        start = timeit.default_timer()
-        while curr_dist < length_path1:
-            curr_dist += min_dist
-            point = prim.GeometricFunctions.get_point_along_path(self._path1, curr_dist)
-            path1.append(point)
-        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
+    def animate(self, file_path=None):
+        fig, ax = plt.subplots()
+        xdata1, ydata1 = [], []
+        ln1, = plt.plot([], [], 'r')
+        xdata2, ydata2 = [], []
+        ln2, = plt.plot([], [], 'b')
 
-        curr_dist = 0
-        idx = 0
-        length = 0
-        start = timeit.default_timer()
-        while curr_dist < length_path2:
-            curr_dist += min_dist
-            point = prim.GeometricFunctions.get_point_along_path(self._path2, curr_dist)
-            path2.append(point)
-        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
+        def init():
+            ax.set_xlim(0, 400)
+            ax.set_ylim(-20, 400)
+            return ln1, ln2,
 
-        return (path1, path2)
+        def update(frame):
+            xdata1.append(self._path1[frame]['x'])
+            ydata1.append(self._path1[frame]['y'])
+            ln1.set_data(xdata1, ydata1)
 
-    def create_path_with_uniform_point_distances_splines(self):
-        start = timeit.default_timer()
-        min_dist = self._shortest_distance_in_tool_path()
-        self.logger.info('Took %ss to find the minimum spacing in the toolpath' % (timeit.default_timer() - start))
-        min_dist = 1
-        self.logger.info('Minimum distance in either path is: %smm' % min_dist)
+            xdata2.append(self._path2[frame]['x'])
+            ydata2.append(self._path2[frame]['y'])
+            ln2.set_data(xdata2, ydata2)
+            return ln1, ln2,
 
-        start = timeit.default_timer()
-        spline1 = prim.Spline(self._path1)
-        spline2 = prim.Spline(self._path2)
-        self.logger.info('Took %ss to create splines for path 1 and path 2' % (timeit.default_timer() - start))
-
-        self.logger.info('Getting Lengths of each path')
-
-        start = timeit.default_timer()
-        length_spline1 = spline1.get_spline_length()
-        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
-
-        start = timeit.default_timer()
-        length_spline2 = spline2.get_spline_length()
-        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
-        self.logger.info('Path 1 Length: %smm' % length_spline1)
-        self.logger.info('Path 2 Length: %smm' % length_spline2)
-
-        path1 = list()
-        path2 = list()
-
-        curr_dist = 0
-        point1, _, _ = spline1.get_point_from_distance(curr_dist)
-        point2, _, _ = spline2.get_point_from_distance(curr_dist)
-        path1.append(point1)
-        path2.append(point2)
-
-        self.logger.info('Creating new path by stepping along previous path in %smm '
-                         'steps until reaching %smm total length' % (min_dist, length_spline1))
-        t = 1E-1
-        length = 0
-        start = timeit.default_timer()
-        while curr_dist < length_spline1:
-            curr_dist += min_dist
-            point, t, length = spline1.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
-            path1.append(point)
-
-        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
-
-        t = 1E-1
-        length = 0
-        curr_dist = 0
-        start = timeit.default_timer()
-        while curr_dist < length_spline2:
-            curr_dist += min_dist
-            point, t, length = spline2.get_point_from_distance(curr_dist, t=t, dt=1E-1, start=length)
-            path2.append(point)
-
-        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
-
-        return (path1, path2)
-
-    def create_path_with_uniform_ratio_spacing(self, key_points):
-        path1 = list()
-        path2 = list()
-        path1.append(self._path1[0])
-        path2.append(self._path2[0])
-
-        if key_points is None:
-            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                start_point=(self._path1[0], self._path2[0]),
-                end_point=(self._path1[0], self._path2[0]))
-            path1.extend(path1_tmp)
-            path2.extend(path2_tmp)
-        elif len(key_points) == 1:
-            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                start_point=(self._path1[0], self._path2[0]),
-                end_point=key_points[0])
-
-            length1 = len(path1_tmp)
-            length2 = len(path2_tmp)
-            min_len = min([length1, length2])
-
-            path1.extend(path1_tmp[:min_len])
-            path2.extend(path2_tmp[:min_len])
-
-            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                start_point=key_points[0],
-                end_point=(self._path1[0], self._path2[0]))
-            length1 = len(path1_tmp)
-            length2 = len(path2_tmp)
-            min_len = min([length1, length2])
-
-            path1.extend(path1_tmp[:min_len])
-            path2.extend(path2_tmp[:min_len])
-        else:
-            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                start_point=(self._path1[0], self._path2[0]),
-                end_point=key_points[0])
-            path1.extend(path1_tmp)
-            path2.extend(path2_tmp)
-
-            for idx in range(0, len(key_points) - 1):
-                path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                    start_point=key_points[idx],
-                    end_point=key_points[idx + 1])
-                path1.extend(path1_tmp)
-                path2.extend(path2_tmp)
-
-            path1_tmp, path2_tmp = self._get_uniform_spacing_points_along_path_segment(
-                start_point=key_points[-1],
-                end_point=(self._path1[0], self._path2[0]))
-            path1.extend(path1_tmp)
-            path2.extend(path2_tmp)
-
-        path1.append(self._path1[0])
-        path2.append(self._path2[0])
-
-        return path1, path2
-
-    def _get_uniform_spacing_points_along_path_segment(self, start_point, end_point):
-        path1 = list()
-        path2 = list()
-        self.logger.info('Getting Lengths of each path')
-        start = timeit.default_timer()
-        length_path1 = prim.GeometricFunctions.path_length_from_point_to_point(self._path1, start_point[0], end_point[0])
-        self.logger.info('Took %ss to calculate length of path 1' % (timeit.default_timer() - start))
-        start = timeit.default_timer()
-        length_path2 = prim.GeometricFunctions.path_length_from_point_to_point(self._path2, start_point[1], end_point[1])
-
-        self.logger.info('Took %ss to calculate length of path 2' % (timeit.default_timer() - start))
-
-        self.logger.info('Path 1 Length: %smm' % length_path1)
-        self.logger.info('Path 2 Length: %smm' % length_path2)
-
-        curr_dist = 0
-        idx = 0
-        length = 0
-        start = timeit.default_timer()
-        while curr_dist < length_path1:
-            curr_dist += length_path1 / 100
-            point = prim.GeometricFunctions.get_point_along_path(self._path1, curr_dist, start_point=start_point[0])
-            path1.append(point)
-        self.logger.info('Took %ss get movement points from path 1' % (timeit.default_timer() - start))
-
-        curr_dist = 0
-        idx = 0
-        length = 0
-        start = timeit.default_timer()
-        while curr_dist < length_path2:
-            curr_dist += length_path2 / 100
-            point = prim.GeometricFunctions.get_point_along_path(self._path2, curr_dist, start_point=start_point[1])
-            path2.append(point)
-        self.logger.info('Took %ss get movement points from path 2' % (timeit.default_timer() - start))
-
-        self.logger.info('Length of XY Move List: %s' % len(path1))
-        self.logger.info('Length of UZ Move List: %s' % len(path2))
-        return (path1, path2)
+        ani = FuncAnimation(fig, update, frames=list(range(0, len(self._path1))),
+                            init_func=init, blit=True)
+        plt.show()

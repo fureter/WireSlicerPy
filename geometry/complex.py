@@ -4,8 +4,9 @@ import logging
 import numpy as np
 import trimesh as tm
 from matplotlib import pyplot as plt
+from matplotlib.animation import FuncAnimation
 
-import geometry.primative
+import geometry.primative as prim
 from geometry.spatial_manipulation import PointManip
 from slicer.wire_cutter import WireCutter
 from util import util_functions
@@ -13,9 +14,12 @@ from util import util_functions
 
 class CrossSection():
     """
-    Contains a list of sections. Sections are any test_geometry that has a get_path function.
+    Contains a list of sections. Sections are any class that defines a get_path function. Valid CrossSections must
+    contain at least one section, and the end of one section must be the start of the next section.
     """
     def __init__(self, section_list):
+        if not isinstance(section_list, list):
+            section_list = [section_list]
         self._section_list = section_list
 
     def __getitem__(self, item):
@@ -27,22 +31,287 @@ class CrossSection():
     def add_section(self, section):
         self._section_list.append(section)
 
+    def is_valid_cross_section(self):
+        ret_val = True
+        for indx in range(0, len(self.section_list)-1):
+            if self.section_list[indx+1][0] != self.section_list[indx][-1]:
+                ret_val = False
+
+        # A cross section is valid if it is a single open entry.
+        if len(self.section_list) > 1 and self.section_list[-1][-1] != self.section_list[0][0]:
+            ret_val = False
+
+        return ret_val
+
+    def get_path(self):
+        path = list()
+        for section in self.section_list:
+            path.extend(section.get_path())
+        return path
+
     @property
     def section_list(self):
         return self._section_list
 
 
-class SectionLink():
+class CutPath():
     """
-    Defines connection paths between CrossSections
+    Contains a list of `CrossSections` and `SectionLinks` that define the work surface cut movement for the gantry. This
+    class directly feeds into ToolPath creation.
     """
-    def __init__(self, start_point, end_point, cut_speed):
-        self.start_point = start_point
-        self.end_point = end_point
-        self.cut_speed = cut_speed
 
-    def get_movement(self):
-        return self.end_point - self.start_point
+    def __init__(self, cut_list_1, cut_list_2):
+        if len(cut_list_1) != len(cut_list_2):
+            raise AttributeError('Error: Cut lists must have the same number of cut segments')
+        self._cut_list_1 = cut_list_1
+        self._cut_list_2 = cut_list_2
+
+    @property
+    def cut_list_1(self):
+        return self._cut_list_1
+
+    @property
+    def cut_list_2(self):
+        return self._cut_list_2
+
+    def is_valid_cut_path(self):
+        logger = logging.getLogger(__name__)
+        ret_val = True
+        if len(self._cut_list_1) != len(self._cut_list_1):
+            logger.error('Error: cut_list lengths do not match')
+            ret_val = False
+        else:
+            for indx in range(0, len(self._cut_list_1)-1):
+                if self.cut_list_1[indx+1].get_path()[0] != self._cut_list_1[indx].get_path()[-1]:
+                    logger.error('Error: End of a Section is the the start of another (%s != %s)' %
+                                 (self.cut_list_1[indx+1].get_path()[0], self._cut_list_1[indx].get_path()[-1]))
+                    ret_val = False
+                if self.cut_list_2[indx+1].get_path()[0] != self._cut_list_2[indx].get_path()[-1]:
+                    logger.error('Error: End of a Section is the the start of another (%s != %s)' %
+                                 (self.cut_list_2[indx+1].get_path()[0], self._cut_list_2[indx].get_path()[-1]))
+                    ret_val = False
+
+        return ret_val
+
+    def add_segment_to_cut_lists(self, segment_1, segment_2):
+        self._cut_list_1.append(segment_1)
+        self._cut_list_2.append(segment_2)
+
+    @staticmethod
+    def _add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z):
+        logger = logging.getLogger(__name__)
+
+        base_x = start_point1['x'] if start_point1['x'] > start_point2['x'] else start_point2['x']
+        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth + (base_x - start_point1['x']), 0, 0)
+        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth + (base_x - start_point2['x']), 0, 0)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        start_point1 = next_point1
+        start_point2 = next_point2
+        base_y = start_point1['y'] if start_point1['y'] > start_point2['y'] else start_point2['y']
+        next_point1 = start_point1 + prim.Point(0, wire_cutter.release_height + (base_y - start_point1['y']), 0)
+        next_point2 = start_point2 + prim.Point(0, wire_cutter.release_height + (base_y - start_point2['y']), 0)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        start_point1 = next_point1
+        start_point2 = next_point2
+        next_point1 = prim.Point(0, start_point1['y'], root_z)
+        next_point2 = prim.Point(0, start_point2['y'], tip_z)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=True)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        start_point1 = next_point1
+        start_point2 = next_point2
+        next_point1 = prim.Point(0, wire_cutter.start_height, root_z)
+        next_point2 = prim.Point(0, wire_cutter.start_height, tip_z)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=True)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        return next_point1, next_point2
+
+    @staticmethod
+    def create_cut_path_from_wing(wing, wire_cutter):
+        """
+
+        :param WingSegment wing:
+        :param WireCutter wire_cutter:
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+
+        if not wing.prepped:
+            raise ValueError('Error: Wing has not been prepped for slicing')
+
+        cut_path = CutPath([], [])
+        root_foil = copy.deepcopy(wing.root_airfoil)
+        tip_foil = copy.deepcopy(wing.tip_airfoil)
+        root_z = wing.root_airfoil[0]['z']
+        tip_z = wing.tip_airfoil[0]['z']
+        logger.debug('Root Z Coord: %s | Tip Z Coord: %s' % (root_z, tip_z))
+
+        start_point1 = prim.Point(0, 0, root_z)
+        start_point2 = prim.Point(0, 0, tip_z)
+        next_point1 = start_point1 + prim.Point(0, wire_cutter.start_height, 0)
+        next_point2 = start_point2 + prim.Point(0, wire_cutter.start_height, 0)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=True)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        start_point1 = next_point1
+        start_point2 = next_point2
+        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
+        # The start depth of the second axis needs to be offset by the difference between the two foils positioning,
+        # this is to account for sweep in the wing
+        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        # Translate both airfoils by the same offset to keep them inline
+        PointManip.Transform.translate(root_foil, [next_point1['x'], next_point1['y'], 0])
+        PointManip.Transform.translate(tip_foil, [next_point1['x'], next_point1['y'], 0])
+
+        root_ind_split = prim.GeometricFunctions.get_index_max_coord(root_foil, 'x')
+        tip_ind_split = prim.GeometricFunctions.get_index_max_coord(tip_foil, 'x')
+
+        top_root = root_foil[0:root_ind_split+1]
+        bottom_root = [root_foil[0]]
+        bottom_root.extend(sorted(root_foil[root_ind_split:-1], key=lambda point: point['x']))
+
+        top_tip = tip_foil[0:tip_ind_split+1]
+        bottom_tip = [tip_foil[0]]
+        bottom_tip.extend(sorted(tip_foil[tip_ind_split:-1], key=lambda point: point['x']))
+
+        cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(top_root)), CrossSection(prim.Path(top_tip)))
+
+        start_point1 = top_root[-1]
+        start_point2 = top_tip[-1]
+        logger.debug('TE of Top Root: %s | TE of Top Tip: %s' % (start_point1, start_point2))
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z)
+
+        start_point1 = next_point1
+        start_point2 = next_point2
+        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
+        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
+        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
+        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
+
+        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+
+        cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
+
+        start_point1 = bottom_root[-1]
+        start_point2 = bottom_tip[-1]
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z)
+
+        return cut_path
+
+    def plot_section_link_connections(self):
+        plt.figure()
+        offset = 1.5
+        for ind in range(0, len(self._cut_list_1)):
+            if isinstance(self.cut_list_1[ind], prim.SectionLink):
+                path1 = self.cut_list_1[ind].get_path()
+                path2 = self.cut_list_2[ind].get_path()
+
+                x1 = [path1[0]['x'], path1[1]['x']]
+                y1 = [path1[0]['y'], path1[1]['y']]
+                plt.plot(x1, y1, 'r')
+
+                x2 = [path2[0]['x'] + offset, path2[1]['x'] + offset]
+                y2 = [path2[0]['y'] + offset, path2[1]['y'] + offset]
+                plt.plot(x2, y2, 'k')
+
+                xc = [path1[0]['x'], path2[0]['x'] + offset]
+                yc = [path1[0]['y'], path2[0]['y'] + offset]
+                plt.plot(xc, yc, 'g')
+
+                xc = [path1[1]['x'], path2[1]['x'] + offset]
+                yc = [path1[1]['y'], path2[1]['y'] + offset]
+                plt.plot(xc, yc, 'g')
+        plt.show()
+
+    def plot_cut_path(self):
+        for item in self._cut_list_1:
+            path = item.get_path()
+            len_path = len(path)
+            x = np.zeros(len_path)
+            y = np.zeros(len_path)
+            for ind in range(0, len_path):
+                x[ind] = path[ind]['x']
+                y[ind] = path[ind]['y']
+            plt.plot(x, y, 'r')
+
+        for item in self._cut_list_2:
+            path = item.get_path()
+            len_path = len(path)
+            x = np.zeros(len_path)
+            y = np.zeros(len_path)
+            for ind in range(0, len_path):
+                x[ind] = path[ind]['x']
+                y[ind] = path[ind]['y']
+            plt.plot(x, y, 'k')
+
+        plt.axis('equal')
+        plt.show()
+
+    def animate(self, file_path=None):
+        path1 = list()
+        path2 = list()
+        for ind in range(0, len(self._cut_list_1)):
+            path1.extend(self._cut_list_1[ind].get_path())
+            path2.extend(self._cut_list_2[ind].get_path())
+
+        fig, ax = plt.subplots()
+        xdata1, ydata1 = [], []
+        ln1, = plt.plot([], [], 'r')
+        xdata2, ydata2 = [], []
+        ln2, = plt.plot([], [], 'b')
+
+        def init():
+            ax.set_xlim(0, 400)
+            ax.set_ylim(-20, 400)
+            return ln1, ln2,
+
+        def update(frame):
+            xdata1.append(path1[frame]['x'])
+            ydata1.append(path1[frame]['y'])
+            ln1.set_data(xdata1, ydata1)
+
+            xdata2.append(path2[frame]['x'])
+            ydata2.append(path2[frame]['y'])
+            ln2.set_data(xdata2, ydata2)
+            return ln1, ln2,
+
+        ani = FuncAnimation(fig, update, frames=list(range(0, len(path1))),
+                            init_func=init, blit=True)
+        plt.show()
 
 
 class STL():
@@ -184,13 +453,13 @@ class WingSegment():
             self._rotated = False
 
         # Check if the root airfoil chord matches the desired root chord, if not, scale it to match
-        _, actual_root_chord = geometry.primative.GeometricFunctions.get_point_from_max_coord(self.root_airfoil, 'x')
+        _, actual_root_chord = prim.GeometricFunctions.get_point_from_max_coord(self.root_airfoil, 'x')
         if actual_root_chord != self.root_chord:
             scale = self.root_chord / actual_root_chord
             PointManip.Transform.scale(self.root_airfoil, [scale, scale, 1])
 
         # Check if the tip airfoil chord matches the desired tip chord, if not, scale it to match
-        _, actual_tip_chord = geometry.primative.GeometricFunctions.get_point_from_max_coord(self.tip_airfoil, 'x')
+        _, actual_tip_chord = prim.GeometricFunctions.get_point_from_max_coord(self.tip_airfoil, 'x')
         if actual_tip_chord != self.tip_chord:
             scale = self.tip_chord / actual_tip_chord
             PointManip.Transform.scale(self.tip_airfoil, [scale, scale, 1])
@@ -210,9 +479,6 @@ class WingSegment():
 
         # Move the tip airfoil to the end of the span
         PointManip.Transform.translate(self.tip_airfoil, [0, 0, self.span])
-        print('*'*80)
-        print('Point1: %s, Point2: %s' % (self.root_airfoil[0], self.tip_airfoil[0]))
-        print('*'*80)
 
         if plot:
             x = list()
@@ -253,11 +519,11 @@ class WingSegment():
 
         :return:
         """
-        leading_edge_root = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+        leading_edge_root = prim.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
         PointManip.Transform.translate(self.root_airfoil, [-leading_edge_root['x'], -leading_edge_root['y'],
                                                            -leading_edge_root['z']])
 
-        leading_edge_tip = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+        leading_edge_tip = prim.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
         PointManip.Transform.translate(self.tip_airfoil, [-leading_edge_tip['x'], -leading_edge_tip['y'],
                                                           -leading_edge_tip['z']])
 
@@ -271,8 +537,8 @@ class WingSegment():
             self.logger.warning('Wing Segment has not been prepped for slicing, '
                                 'run prep_for_slicing() before centering')
         else:
-            point_root = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
-            point_tip = geometry.primative.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+            point_root = prim.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+            point_tip = prim.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
 
             center = wire_cutter.wire_length/2
             wing_half = self.span/2
@@ -293,7 +559,11 @@ class WingSegment():
 
         :return:
         """
-        pass
+        root_z = self.root_airfoil[0]['z']
+        tip_z = self.tip_airfoil[0]['z']
+
+        PointManip.Transform.translate(self.root_airfoil, [0, 0, tip_z - root_z])
+        PointManip.Transform.translate(self.tip_airfoil, [0, 0, root_z - tip_z])
 
     def set_tip_airfoil(self, airfoil):
         """
@@ -358,7 +628,45 @@ class WingSegment():
 
         :return:
         """
-        root_thickness = geometry.primative.GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
-        tip_thickness = geometry.primative.GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
+        root_thickness = prim.GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
+        tip_thickness = prim.GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
 
         return root_thickness/self.root_chord, tip_thickness/self.tip_chord
+
+    def planform_coordinates(self):
+        len_x = 8 if self.symmetric else 4
+        len_y = len_x
+
+        x = np.zeros(len_x)
+        y = np.zeros(len_y)
+
+        x[0] = 0
+        x[1] = self.span
+        x[2] = self.span
+        x[3] = 0
+        y[0] = self.root_chord
+        y[1] = self.root_chord - self.span*np.sin(np.deg2rad(self.sweep))
+        y[2] = self.root_chord - self.tip_chord - self.span*np.sin(np.deg2rad(self.sweep))
+        y[3] = 0
+
+        if self.symmetric:
+            x[4] = 0
+            x[5] = -self.span
+            x[6] = -self.span
+            x[7] = 0
+            y[7] = self.root_chord
+            y[6] = self.root_chord - self.span*np.sin(np.deg2rad(self.sweep))
+            y[5] = self.root_chord - self.tip_chord - self.span*np.sin(np.deg2rad(self.sweep))
+            y[4] = 0
+
+        return (np.array(x), np.array(y))
+
+    def plot_planform(self):
+        (x, y) = self.planform_coordinates()
+
+        plt.plot(x, y)
+        plt.xlabel('y (m)')
+        plt.ylabel('x (m)')
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.axis('equal')
+        plt.show()

@@ -14,6 +14,8 @@ class PointManip():
 
         @staticmethod
         def translate(points, vector):
+            if isinstance(vector, Point):
+                vector = [vector['x'], vector['y'], vector['z']]
             for point in points:
                 point['x'] += vector[0]
                 point['y'] += vector[1]
@@ -181,13 +183,12 @@ class PointManip():
         for i in range(1, segments):
             x = left_most_x + i * delta
             closest_points.append(PointManip.get_two_points_at_coord(points, 'x', x))
-            print('Closest_Points: %s' % closest_points)
 
         line = Line.line_from_points(left_most_point, Point(closest_points[0][0]['x'],
                                                             (closest_points[0][0]['y'] +
                                                              closest_points[0][1]['y'])/2,
                                                             closest_points[0][0]['z']))
-        line.plot()
+        #line.plot()
         lines.append(line)
         for indx in range(0, segments-2):
             left = Point(closest_points[indx][0]['x'],
@@ -200,7 +201,7 @@ class PointManip():
                            closest_points[indx + 1][1]['y']) / 2,
                           closest_points[indx + 1][0]['z'])
             line = Line.line_from_points(left, right)
-            line.plot()
+            # line.plot()
             lines.append(line)
 
         last = Point(closest_points[-1][0]['x'],
@@ -208,7 +209,7 @@ class PointManip():
                       closest_points[-1][1]['y']) / 2,
                      closest_points[-1][0]['z'])
         line = Line.line_from_points(last, right_most_point)
-        line.plot()
+        #line.plot()
         lines.append(line)
 
         return lines

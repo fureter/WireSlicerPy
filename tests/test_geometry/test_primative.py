@@ -207,9 +207,16 @@ class TestSpline(unittest.TestCase):
         # self.assertAlmostEqual(test_point['y'], 2.0, 12)
         # self.assertAlmostEqual(test_point['z'], 0.0, 12)
 
+    def test_get_x_y_z(self):
+        pass
+
+    def test_get_points(self):
+        pass
+
+
 class TestPlane(unittest.TestCase):
     pass
 
+
 class TestGeometricFunctions(unittest.TestCase):
     pass
-
