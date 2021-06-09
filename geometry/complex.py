@@ -17,6 +17,7 @@ class CrossSection():
     Contains a list of sections. Sections are any class that defines a get_path function. Valid CrossSections must
     contain at least one section, and the end of one section must be the start of the next section.
     """
+
     def __init__(self, section_list):
         if not isinstance(section_list, list):
             section_list = [section_list]
@@ -33,8 +34,8 @@ class CrossSection():
 
     def is_valid_cross_section(self):
         ret_val = True
-        for indx in range(0, len(self.section_list)-1):
-            if self.section_list[indx+1][0] != self.section_list[indx][-1]:
+        for indx in range(0, len(self.section_list) - 1):
+            if self.section_list[indx + 1][0] != self.section_list[indx][-1]:
                 ret_val = False
 
         # A cross section is valid if it is a single open entry.
@@ -81,14 +82,14 @@ class CutPath():
             logger.error('Error: cut_list lengths do not match')
             ret_val = False
         else:
-            for indx in range(0, len(self._cut_list_1)-1):
-                if self.cut_list_1[indx+1].get_path()[0] != self._cut_list_1[indx].get_path()[-1]:
+            for indx in range(0, len(self._cut_list_1) - 1):
+                if self.cut_list_1[indx + 1].get_path()[0] != self._cut_list_1[indx].get_path()[-1]:
                     logger.error('Error: End of a Section is the the start of another (%s != %s)' %
-                                 (self.cut_list_1[indx+1].get_path()[0], self._cut_list_1[indx].get_path()[-1]))
+                                 (self.cut_list_1[indx + 1].get_path()[0], self._cut_list_1[indx].get_path()[-1]))
                     ret_val = False
-                if self.cut_list_2[indx+1].get_path()[0] != self._cut_list_2[indx].get_path()[-1]:
+                if self.cut_list_2[indx + 1].get_path()[0] != self._cut_list_2[indx].get_path()[-1]:
                     logger.error('Error: End of a Section is the the start of another (%s != %s)' %
-                                 (self.cut_list_2[indx+1].get_path()[0], self._cut_list_2[indx].get_path()[-1]))
+                                 (self.cut_list_2[indx + 1].get_path()[0], self._cut_list_2[indx].get_path()[-1]))
                     ret_val = False
 
         return ret_val
@@ -101,9 +102,8 @@ class CutPath():
     def _add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z):
         logger = logging.getLogger(__name__)
 
-        base_x = start_point1['x'] if start_point1['x'] > start_point2['x'] else start_point2['x']
-        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth + (base_x - start_point1['x']), 0, 0)
-        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth + (base_x - start_point2['x']), 0, 0)
+        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
+        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth, 0, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
@@ -198,11 +198,11 @@ class CutPath():
         root_ind_split = prim.GeometricFunctions.get_index_max_coord(root_foil, 'x')
         tip_ind_split = prim.GeometricFunctions.get_index_max_coord(tip_foil, 'x')
 
-        top_root = root_foil[0:root_ind_split+1]
+        top_root = root_foil[0:root_ind_split + 1]
         bottom_root = [root_foil[0]]
         bottom_root.extend(sorted(root_foil[root_ind_split:-1], key=lambda point: point['x']))
 
-        top_tip = tip_foil[0:tip_ind_split+1]
+        top_tip = tip_foil[0:tip_ind_split + 1]
         bottom_tip = [tip_foil[0]]
         bottom_tip.extend(sorted(tip_foil[tip_ind_split:-1], key=lambda point: point['x']))
 
@@ -211,7 +211,8 @@ class CutPath():
         start_point1 = top_root[-1]
         start_point2 = top_tip[-1]
         logger.debug('TE of Top Root: %s | TE of Top Tip: %s' % (start_point1, start_point2))
-        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z)
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z,
+                                                         tip_z)
 
         start_point1 = next_point1
         start_point2 = next_point2
@@ -228,7 +229,8 @@ class CutPath():
 
         start_point1 = bottom_root[-1]
         start_point2 = bottom_tip[-1]
-        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z)
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z,
+                                                         tip_z)
 
         return cut_path
 
@@ -540,8 +542,8 @@ class WingSegment():
             point_root = prim.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
             point_tip = prim.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
 
-            center = wire_cutter.wire_length/2
-            wing_half = self.span/2
+            center = wire_cutter.wire_length / 2
+            wing_half = self.span / 2
 
             if wing_half > center:
                 raise AttributeError('Error: Wing does not fit in the wire cutter')
@@ -631,7 +633,7 @@ class WingSegment():
         root_thickness = prim.GeometricFunctions.get_max_thickness(self.root_airfoil, 'y', 'x')
         tip_thickness = prim.GeometricFunctions.get_max_thickness(self.tip_airfoil, 'y', 'x')
 
-        return root_thickness/self.root_chord, tip_thickness/self.tip_chord
+        return root_thickness / self.root_chord, tip_thickness / self.tip_chord
 
     def planform_coordinates(self):
         len_x = 8 if self.symmetric else 4
@@ -645,8 +647,8 @@ class WingSegment():
         x[2] = self.span
         x[3] = 0
         y[0] = self.root_chord
-        y[1] = self.root_chord - self.span*np.sin(np.deg2rad(self.sweep))
-        y[2] = self.root_chord - self.tip_chord - self.span*np.sin(np.deg2rad(self.sweep))
+        y[1] = self.root_chord - self.span * np.sin(np.deg2rad(self.sweep))
+        y[2] = self.root_chord - self.tip_chord - self.span * np.sin(np.deg2rad(self.sweep))
         y[3] = 0
 
         if self.symmetric:
@@ -655,8 +657,8 @@ class WingSegment():
             x[6] = -self.span
             x[7] = 0
             y[7] = self.root_chord
-            y[6] = self.root_chord - self.span*np.sin(np.deg2rad(self.sweep))
-            y[5] = self.root_chord - self.tip_chord - self.span*np.sin(np.deg2rad(self.sweep))
+            y[6] = self.root_chord - self.span * np.sin(np.deg2rad(self.sweep))
+            y[5] = self.root_chord - self.tip_chord - self.span * np.sin(np.deg2rad(self.sweep))
             y[4] = 0
 
         return (np.array(x), np.array(y))

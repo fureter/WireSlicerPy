@@ -52,6 +52,10 @@ def setup(logger_level=logging.INFO):
     logger.addHandler(file_handler)
 
     logging.getLogger('matplotlib.font_manager').disabled = True
+    logging.getLogger('matplotlib.pyplot').disabled = True
+    logging.getLogger('matplotlib').disabled = True
+    logging.getLogger('shapely.geos').disabled = True
+    logging.getLogger('trimesh').disabled = True
 
 
 class CustomFormatter(logging.Formatter):
@@ -60,16 +64,18 @@ class CustomFormatter(logging.Formatter):
     from: https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
     """
     grey = "\x1b[38;21m"
-    yellow = "\x1b[33;21m"
-    red = "\x1b[31;21m"
+    bright_blue = "\x1b[94m;21m"
+    magenta = "\x1b[35;21m\x1b[1m"
+    bright_yellow = "\x1b[94;21m"
+    red = "\x1b[31;1m"
     bold_red = "\x1b[31;1m"
     reset = "\x1b[0m"
-    format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s (%(filename)s:%(lineno)d)"
+    format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s (File "%(pathname)s", line %(lineno)d)'
 
     FORMATS = {
-        logging.DEBUG: grey + format + reset,
+        logging.DEBUG: bright_blue + format + reset,
         logging.INFO: grey + format + reset,
-        logging.WARNING: yellow + format + reset,
+        logging.WARNING: bright_yellow + format + reset,
         logging.ERROR: red + format + reset,
         logging.CRITICAL: bold_red + format + reset
     }

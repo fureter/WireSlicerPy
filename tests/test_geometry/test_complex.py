@@ -1,7 +1,7 @@
 import unittest
 
 from geometry.complex import CrossSection
-from geometry.complex import SectionLink
+from geometry.primative import SectionLink
 from geometry.complex import STL
 from geometry.complex import WingSegment
 
