@@ -99,53 +99,49 @@ class CutPath():
         self._cut_list_2.append(segment_2)
 
     @staticmethod
-    def _add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z, tip_z):
+    def _add_loopback(cut_path, wire_cutter, root_z, tip_z):
         logger = logging.getLogger(__name__)
 
-        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
-        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth, 0, 0)
-        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+        offset = prim.Point(wire_cutter.start_depth, 0, 0)
+        cut_path.add_section_link_from_offset(cut_1_offset=offset, cut_2_offset=offset)
 
-        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
-        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
+        offset = prim.Point(0, wire_cutter.release_height, 0)
+        cut_path.add_section_link_from_offset(cut_1_offset=offset, cut_2_offset=offset)
 
-        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+        start1, start2 = cut_path.get_next_start_points()
+        next_point1 = prim.Point(0, start1['y'], root_z)
+        next_point2 = prim.Point(0, start2['y'], tip_z)
+        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2)
 
-        start_point1 = next_point1
-        start_point2 = next_point2
-        base_y = start_point1['y'] if start_point1['y'] > start_point2['y'] else start_point2['y']
-        next_point1 = start_point1 + prim.Point(0, wire_cutter.release_height + (base_y - start_point1['y']), 0)
-        next_point2 = start_point2 + prim.Point(0, wire_cutter.release_height + (base_y - start_point2['y']), 0)
-        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
-
-        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
-        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
-
-        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
-
-        start_point1 = next_point1
-        start_point2 = next_point2
-        next_point1 = prim.Point(0, start_point1['y'], root_z)
-        next_point2 = prim.Point(0, start_point2['y'], tip_z)
-        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
-
-        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
-        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=True)
-
-        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
-
-        start_point1 = next_point1
-        start_point2 = next_point2
         next_point1 = prim.Point(0, wire_cutter.start_height, root_z)
         next_point2 = prim.Point(0, wire_cutter.start_height, tip_z)
-        logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
-
-        seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
-        seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=True)
-
-        cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
+        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2)
 
         return next_point1, next_point2
+
+    def add_section_link_from_offset(self, cut_1_offset, cut_2_offset, fast_cut=False):
+        """
+
+        :param prim.Point cut_1_offset:
+        :param prim.Point cut_2_offset:
+        :return:
+        """
+        start1, start2 = self.get_next_start_points()
+        self.add_segment_to_cut_lists(
+            prim.SectionLink(start_point=start1, end_point=start1 + cut_1_offset, fast_cut=fast_cut),
+            prim.SectionLink(start_point=start2, end_point=start2 + cut_2_offset, fast_cut=fast_cut))
+
+    def add_section_link_from_abs_coord(self, point1, point2, fast_cut=False):
+        """
+
+        :param prim.Point point1:
+        :param prim.Point point2:
+        :return:
+        """
+        start1, start2 = self.get_next_start_points()
+        self.add_segment_to_cut_lists(
+            prim.SectionLink(start_point=start1, end_point=point1, fast_cut=fast_cut),
+            prim.SectionLink(start_point=start2, end_point=point2, fast_cut=fast_cut))
 
     @staticmethod
     def create_cut_path_from_wing(wing, wire_cutter):
@@ -211,7 +207,7 @@ class CutPath():
         start_point1 = top_root[-1]
         start_point2 = top_tip[-1]
         logger.debug('TE of Top Root: %s | TE of Top Tip: %s' % (start_point1, start_point2))
-        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z,
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, wire_cutter, root_z,
                                                          tip_z)
 
         start_point1 = next_point1
@@ -227,10 +223,7 @@ class CutPath():
 
         cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
 
-        start_point1 = bottom_root[-1]
-        start_point2 = bottom_tip[-1]
-        next_point1, next_point2 = CutPath._add_loopback(cut_path, start_point1, start_point2, wire_cutter, root_z,
-                                                         tip_z)
+        CutPath._add_loopback(cut_path, wire_cutter, root_z, tip_z)
 
         return cut_path
 
@@ -315,6 +308,8 @@ class CutPath():
                             init_func=init, blit=True)
         plt.show()
 
+    def get_next_start_points(self):
+        return self._cut_list_1[-1].get_path()[-1], self._cut_list_2[-1].get_path()[-1]
 
 class STL():
     """
