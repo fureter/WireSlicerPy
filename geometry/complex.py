@@ -182,6 +182,15 @@ class CutPath():
         next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
 
+        test_line = prim.Line.line_from_points(next_point1, next_point2)
+        p1 = test_line.get_extrapolated_point(0, constraint_dim='z')
+        p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
+
+        if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
+            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth-p2['x'])
+            next_point1 += prim.Point(offset, 0, 0)
+            next_point2 += prim.Point(offset, 0, 0)
+
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
         seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
 
@@ -215,6 +224,15 @@ class CutPath():
         next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
         next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
+
+        test_line = prim.Line.line_from_points(next_point1, next_point2)
+        p1 = test_line.get_extrapolated_point(0, constraint_dim='z')
+        p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
+
+        if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
+            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth-p2['x'])
+            next_point1 += prim.Point(offset, 0, 0)
+            next_point2 += prim.Point(offset, 0, 0)
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
         seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)

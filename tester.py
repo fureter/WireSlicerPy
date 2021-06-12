@@ -22,9 +22,9 @@ from g_code.generator import TravelType
 
 
 def main():
-    wire_slicer.setup()
+    wire_slicer.setup(logger_level=logging.DEBUG)
 
-    logger = logging.getLogger()
+    logger = logging.getLogger(__name__)
 
     file_path = r'assets/Airfoils/MH70.dat'
     naca0009_file_path = r'assets/Airfoils/naca0009.dat'
@@ -32,25 +32,24 @@ def main():
     ag35_file_path = r'assets/Airfoils/ag35.dat'
     s5020_file_path = r'assets/Airfoils/s5020.dat'
 
-    ag35_data = Dat(filepath=ag35_file_path)
+    naca0009_data = Dat(filepath=naca0009_file_path)
     #ag35_data.plot_points_2d()
 
-    ag35_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(ag35_data.get_data())))
+    naca0009_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(naca0009_data.get_data())))
     #ag35_reord.plot_points_2d()
 
-    ag35_path = Spline(ag35_reord.get_data(), resolution=2).get_path()
+    naca0009_path = Spline(naca0009_reord.get_data(), resolution=2).get_path()
 
-    logger.info('Profile Name: %s' % ag35_data.name)
+    logger.info('Profile Name: %s' % naca0009_data.name)
 
-    wing = WingSegment(name=ag35_data.name, logger=logger)
-    wing.set_span(600)
-    wing.set_root_chord(200)
-    wing.set_tip_chord(140)
-    wing.set_root_airfoil(copy.deepcopy(ag35_path))
-    wing.set_tip_airfoil(copy.deepcopy(ag35_path))
-    wing.set_washout(1.0)
-    wing.set_sweep(1.0)
-    wing.symmetric = True
+    wing = WingSegment(name=naca0009_data.name, logger=logger)
+    wing.set_span(250)
+    wing.set_root_chord(180)
+    wing.set_tip_chord(150)
+    wing.set_root_airfoil(copy.deepcopy(naca0009_path))
+    wing.set_tip_airfoil(copy.deepcopy(naca0009_path))
+    wing.set_washout(0)
+    wing.set_sweep(7.5)
 
     wire_len = 1000
 
@@ -76,20 +75,21 @@ def main():
     tool_path.plot_tool_paths()
     tool_path.plot_tool_path_connections(step=3)
     plt.show()
+    tool_path.animate()
 
     gcode = GCodeGenerator(wire_cutter, logger, travel_type=TravelType.CONSTANT_RATIO)
-    gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_left_test.txt' % wing.name, tool_path=tool_path)
+    gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_test.txt' % wing.name, tool_path=tool_path)
 
     plt.axis('equal')
     plt.show()
 
-    wing.flip_tip_and_root()
-    cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter)
-    tool_path = ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
-    tool_path.zero_forwards_path_for_cutting()
-    gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_right_test.txt' % wing.name, tool_path=tool_path)
-    plt.axis('equal')
-    plt.show()
+    # wing.flip_tip_and_root()
+    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter)
+    # tool_path = ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
+    # tool_path.zero_forwards_path_for_cutting()
+    # gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_right_test.txt' % wing.name, tool_path=tool_path)
+    # plt.axis('equal')
+    # plt.show()
 
     # plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
     #             'tool_path UZ @ 0mm'])

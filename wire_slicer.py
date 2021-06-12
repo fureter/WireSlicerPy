@@ -64,7 +64,7 @@ class CustomFormatter(logging.Formatter):
     from: https://stackoverflow.com/questions/384076/how-can-i-color-python-logging-output
     """
     grey = "\x1b[38;21m"
-    bright_blue = "\x1b[94m;21m"
+    bright_blue = "\x1b[94;21m"
     magenta = "\x1b[35;21m\x1b[1m"
     bright_yellow = "\x1b[94;21m"
     red = "\x1b[31;1m"
