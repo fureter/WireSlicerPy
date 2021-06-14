@@ -5,7 +5,7 @@ import timeit
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+import matplotlib.animation as animation
 
 # from geometry.primative import Spline
 # from geometry.primative import Point
@@ -306,12 +306,17 @@ class ToolPath():
                 movement.append([0, 0, self._path2[idx]['x'], self._path2[idx]['y']])
         return movement
 
-    def animate(self, file_path=None):
+    def animate(self, file_path=None, title=''):
+        logger = logging.getLogger(__name__)
+
         fig, ax = plt.subplots()
         xdata1, ydata1 = [], []
         ln1, = plt.plot([], [], 'r')
         xdata2, ydata2 = [], []
         ln2, = plt.plot([], [], 'b')
+        plt.title(title)
+        plt.xlabel('X-U Axis (mm)')
+        plt.xlabel('Y-Z Axis (mm)')
 
         def init():
             ax.set_xlim(0, 400)
@@ -328,6 +333,16 @@ class ToolPath():
             ln2.set_data(xdata2, ydata2)
             return ln1, ln2,
 
-        ani = FuncAnimation(fig, update, frames=list(range(0, len(self._path1))),
+        # Set up formatting for the movie files
+
+        ani = animation.FuncAnimation(fig, update, frames=list(range(0, len(self._path1))),
                             init_func=init, blit=True)
+        try:
+            plt.rcParams['animation.ffmpeg_path'] = r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe'
+            writer_class = animation.writers['ffmpeg']
+            writer = writer_class(fps=15, metadata=dict(artist='FurEter'), bitrate=1800)
+            ani.save(file_path % title, writer=writer)
+        except RuntimeError:
+            logger.exception('Error animation writter could not be found at file path: %s',
+                             r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe')
         plt.show()

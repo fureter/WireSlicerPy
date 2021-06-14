@@ -144,7 +144,7 @@ class CutPath():
             prim.SectionLink(start_point=start2, end_point=point2, fast_cut=fast_cut))
 
     @staticmethod
-    def create_cut_path_from_wing(wing, wire_cutter):
+    def create_cut_path_from_wing(wing, wire_cutter, debug_kerf=False):
         """
 
         :param WingSegment wing:
@@ -159,9 +159,41 @@ class CutPath():
         cut_path = CutPath([], [])
         root_foil = copy.deepcopy(wing.root_airfoil)
         tip_foil = copy.deepcopy(wing.tip_airfoil)
-        root_z = wing.root_airfoil[0]['z']
-        tip_z = wing.tip_airfoil[0]['z']
-        logger.debug('Root Z Coord: %s | Tip Z Coord: %s' % (root_z, tip_z))
+
+        if wire_cutter.kerf is not None:
+            if wing.root_chord > wing.tip_chord:
+                kerf_root = wire_cutter.kerf
+                kerf_tip = wire_cutter.kerf * wing.root_chord/wing.tip_chord
+            else:
+                kerf_root = wire_cutter.kerf * wing.root_chord/wing.tip_chord
+                kerf_tip = wire_cutter.kerf
+            if debug_kerf:
+                prim.GeometricFunctions.plot_path(root_foil, 1)
+                prim.GeometricFunctions.plot_path(tip_foil, 2)
+
+            root_foil = prim.GeometricFunctions.offset_curve(root_foil, kerf_root, dir=0, divisions=2)
+            tip_foil = prim.GeometricFunctions.offset_curve(tip_foil, kerf_tip, dir=0, divisions=2)
+
+            leading_edge_root = prim.GeometricFunctions.get_point_from_min_coord(root_foil, 'x')
+            leading_edge_tip = prim.GeometricFunctions.get_point_from_min_coord(tip_foil, 'x')
+
+            offset = leading_edge_root['x'] if leading_edge_root['x'] < leading_edge_tip['x'] else leading_edge_tip['x']
+            if offset < 0:
+                PointManip.Transform.translate(root_foil, [-offset, 0, 0])
+                PointManip.Transform.translate(tip_foil, [-offset, 0, 0])
+
+            if debug_kerf:
+                prim.GeometricFunctions.plot_path(root_foil, 3)
+                prim.GeometricFunctions.plot_path(tip_foil, 4)
+
+                plt.legend(['Root Foil', 'Tip Foil', 'Root Foil with %smm kerf' % kerf_root,
+                            'Tip Foil with %smm kerf' % kerf_tip])
+                plt.axis('equal')
+                plt.show()
+
+        root_z = root_foil[0]['z']
+        tip_z = tip_foil[0]['z']
+        logger.debug('Root: %s | Tip: %s' % (root_foil[0], tip_foil[0]))
 
         start_point1 = prim.Point(0, 0, root_z)
         start_point2 = prim.Point(0, 0, tip_z)
@@ -191,14 +223,21 @@ class CutPath():
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
 
+        # Translate both airfoils by the same offset to keep them inline
+        logger.debug('Next Point X: %s', next_point1['x'])
+        PointManip.Transform.translate(root_foil, [next_point1['x'], next_point1['y'], 0])
+        PointManip.Transform.translate(tip_foil, [next_point1['x'], next_point1['y'], 0])
+        logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
+
+        next_point1 += root_foil[0] - next_point1
+        logger.debug('Next Point X after offset: %s', next_point1['x'])
+        next_point2 += tip_foil[0] -next_point2
+        logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
+
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
         seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
 
         cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
-
-        # Translate both airfoils by the same offset to keep them inline
-        PointManip.Transform.translate(root_foil, [next_point1['x'], next_point1['y'], 0])
-        PointManip.Transform.translate(tip_foil, [next_point1['x'], next_point1['y'], 0])
 
         root_ind_split = prim.GeometricFunctions.get_index_max_coord(root_foil, 'x')
         tip_ind_split = prim.GeometricFunctions.get_index_max_coord(tip_foil, 'x')
@@ -233,6 +272,11 @@ class CutPath():
             offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth-p2['x'])
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
+
+        next_point1 += root_foil[0] - next_point1
+        logger.debug('Next Point X after offset: %s', next_point1['x'])
+        next_point2 += tip_foil[0] -next_point2
+        logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
         seg_link2 = prim.SectionLink(start_point2, next_point2, fast_cut=False)
@@ -513,6 +557,29 @@ class WingSegment():
 
         self.prepped = True
 
+    def align_leading_edge_with_wire(self):
+        """
+        rotates the wing so that the leading edge is parallel to the z-axis. Wing has to be prepped for slicing, if the
+        wing is not prepped before hand, it will be prepped.
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+        if not self.prepped:
+            self.prep_for_slicing()
+
+        rot = [0, np.deg2rad(-self.sweep), 0]
+        origin = [0, 0, self.root_airfoil[0]['z'] if self.root_airfoil[0]['x'] < self.tip_airfoil[0]['x'] else
+                        self.tip_airfoil[0]['z']]
+        logger.debug('Origin for rotation: %s', origin)
+        PointManip.Transform.rotate(self.root_airfoil, rot, origin)
+        PointManip.Transform.rotate(self.tip_airfoil, rot, origin)
+        leading_edge_root = prim.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+        leading_edge_tip = prim.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+        PointManip.Transform.translate(self.root_airfoil, [-leading_edge_root['x'], 0, 0])
+        PointManip.Transform.translate(self.tip_airfoil, [-leading_edge_tip['x'], 0, 0])
+        logger.debug('Root Airfoil Leading Edge: %s', self.root_airfoil[0])
+        logger.debug('Tip Airfoil Leading Edge: %s', self.tip_airfoil[0])
+
     def _check_minimum_data_present(self):
         """
 
@@ -684,4 +751,19 @@ class WingSegment():
         plt.ylabel('x (m)')
         plt.gca().set_aspect('equal', adjustable='box')
         plt.axis('equal')
-        plt.show()
+
+    def plot_cut_planform(self):
+        leading_edge_root = prim.GeometricFunctions.get_point_from_min_coord(self.root_airfoil, 'x')
+        trailing_edge_root, _ = prim.GeometricFunctions.get_point_from_max_coord(self.root_airfoil, 'x')
+
+        leading_edge_tip = prim.GeometricFunctions.get_point_from_min_coord(self.tip_airfoil, 'x')
+        trailing_edge_tip, _ = prim.GeometricFunctions.get_point_from_max_coord(self.tip_airfoil, 'x')
+
+        x = [leading_edge_root['z'], leading_edge_tip['z'], trailing_edge_tip['z'], trailing_edge_root['z'],
+             leading_edge_root['z']]
+        y = [leading_edge_root['x'], leading_edge_tip['x'], trailing_edge_tip['x'], trailing_edge_root['x'],
+             leading_edge_root['x']]
+
+        plt.xlabel('Machine Z Axis (Length Along Wire mm)')
+        plt.ylabel('Machine X Axis (Length Down Gantry [X, U] mm)')
+        plt.plot(x, y)

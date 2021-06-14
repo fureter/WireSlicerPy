@@ -25,6 +25,7 @@ class WireCutter():
         self.feed_rate_mode = feed_rate_mode
         self.start_up_gcode = None
         self.axis_def = axis_def
+        self.kerf = None
 
     def set_gcode_statup(self, g_code):
         """Sets the initializing test_g_code for the machine.
@@ -33,3 +34,6 @@ class WireCutter():
         :type g_code: list[str].
         """
         self.start_up_gcode = g_code
+
+    def set_kerf(self, kerf):
+        self.kerf = kerf

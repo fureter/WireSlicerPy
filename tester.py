@@ -9,6 +9,8 @@ import wire_slicer
 from slicer.wire_cutter import WireCutter
 from slicer.tool_path import ToolPath
 from geometry.parser import Dat
+from geometry.primative import Point
+from geometry.primative import Line
 from geometry.primative import Spline
 from geometry.primative import Plane
 from geometry.primative import GeometricFunctions
@@ -38,31 +40,36 @@ def main():
     naca0009_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(naca0009_data.get_data())))
     #ag35_reord.plot_points_2d()
 
-    naca0009_path = Spline(naca0009_reord.get_data(), resolution=2).get_path()
+    naca0009_path = Spline(naca0009_reord.get_data(), resolution=4).get_path()
 
     logger.info('Profile Name: %s' % naca0009_data.name)
 
     wing = WingSegment(name=naca0009_data.name, logger=logger)
-    wing.set_span(250)
+    wing.set_span(200)
     wing.set_root_chord(180)
-    wing.set_tip_chord(150)
+    wing.set_tip_chord(100)
     wing.set_root_airfoil(copy.deepcopy(naca0009_path))
     wing.set_tip_airfoil(copy.deepcopy(naca0009_path))
     wing.set_washout(0)
-    wing.set_sweep(7.5)
+    wing.set_sweep(10)
 
     wire_len = 1000
 
     wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=100.0, min_speed=0.01,
                              release_height=100.0,
                              start_height=25.0, start_depth=20.0)
+    wire_cutter.set_kerf(kerf=1.0)
 
     wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
 
     wing.prep_for_slicing(plot=True)
     plt.show()
     wing.center_to_wire_cutter(wire_cutter=wire_cutter)
-    wing.plot_planform()
+    wing.plot_cut_planform()
+    wing.align_leading_edge_with_wire()
+    wing.plot_cut_planform()
+    plt.legend(['Original Wing', 'Wing aligned to Wire'])
+    plt.axis('equal')
     plt.show()
     print('Root Airfoil Point after prepping: %s' % wing.root_airfoil[0])
 
@@ -75,21 +82,23 @@ def main():
     tool_path.plot_tool_paths()
     tool_path.plot_tool_path_connections(step=3)
     plt.show()
+    # Animation runs endlessly when trying to save, might be an issue with my ffmpeg install
+    #tool_path.animate(file_path='./debug/%s.mp4', title='Naca0009_horz_stab_test')
     tool_path.animate()
 
-    gcode = GCodeGenerator(wire_cutter, logger, travel_type=TravelType.CONSTANT_RATIO)
+    gcode = GCodeGenerator(wire_cutter, travel_type=TravelType.CONSTANT_RATIO)
     gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_test.txt' % wing.name, tool_path=tool_path)
 
     plt.axis('equal')
     plt.show()
 
-    # wing.flip_tip_and_root()
-    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter)
-    # tool_path = ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
-    # tool_path.zero_forwards_path_for_cutting()
-    # gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_right_test.txt' % wing.name, tool_path=tool_path)
-    # plt.axis('equal')
-    # plt.show()
+    wing.flip_tip_and_root()
+    cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter)
+    tool_path = ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
+    tool_path.zero_forwards_path_for_cutting()
+    gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_right_test.txt' % wing.name, tool_path=tool_path)
+    plt.axis('equal')
+    plt.show()
 
     # plt.legend(['goe430 @ %smm' % profile_2_dist, 'naca0009 @ %smm' % profile_1_dist, 'tool_path XY @ %smm' % wire_len,
     #             'tool_path UZ @ 0mm'])

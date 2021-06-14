@@ -1,3 +1,4 @@
+import logging
 import timeit
 
 import g_code.command_library as command_library
@@ -39,7 +40,7 @@ class CutLayout():
 
 
 class GCodeGenerator():
-    def __init__(self, wire_cutter, logger, travel_type=TravelType.CONSTANT_SPEED):
+    def __init__(self, wire_cutter, travel_type=TravelType.CONSTANT_SPEED):
         """
 
         :param WireCutter wire_cutter:
@@ -47,7 +48,7 @@ class GCodeGenerator():
         """
         self._wire_cutter = wire_cutter
         self._travel_type = travel_type
-        self.logger = logger
+        self.logger = logging.getLogger(__name__)
 
     def set_travel(self, travel_type):
         if travel_type in TravelType.RANGE:

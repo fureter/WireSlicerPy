@@ -1,4 +1,5 @@
 import abc
+import copy
 from abc import ABC
 import sys
 import os
@@ -68,6 +69,28 @@ class Point():
 
     def __repr__(self):
         return '(%s, %s, %s)' % (self._coord[0], self._coord[1], self._coord[2],)
+
+    def __rdiv__(self, other):
+        """
+
+        :param int or float other:
+        :return:
+        """
+        return Point(self._coord[0]/other, self._coord[1]/other, self._coord[2]/other)
+
+    def __truediv__(self, other):
+        """
+
+        :param int or float other:
+        :return:
+        """
+        return Point(self._coord[0]/other, self._coord[1]/other, self._coord[2]/other)
+
+    def __mul__(self, other):
+        ret_val = None
+        if isinstance(other, Point):
+            ret_val = self._coord[0]*other['x'] + self._coord[1]*other['y'] + self._coord[2]*other['z']
+        return ret_val
 
 
 class Section(ABC):
@@ -171,7 +194,7 @@ class Line(Section):
     def line_from_points(point1, point2):
         """
         Takes two points and forms a line in the form of:
-        x-x0/a = y-y0/b = z-z0/c
+        (x-x0)/a = (y-y0)/b = (z-z0)/c
 
         :param Point point1: Origin starting point. point1 is used to obtain x0, y0, z0
         :param Point point2: Offset point from the origin, used to find a, b, c.
@@ -186,6 +209,47 @@ class Line(Section):
         c = point2['z'] - z0
 
         return Line(a, b, c, x0, y0, z0, point1, point2)
+
+    def intersects(self, line):
+        """
+        returns true if the given line intersects with self
+        :param line:
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+
+        ret_val = False
+
+        sx, sy = line._a, line._b
+        rx, ry = self._a, self._b
+
+        a = np.array([[rx, -sx],
+                      [ry, -sy]])
+        b = np.array([[-self._x0 + line._x0], [-self._y0 + line._y0]])
+
+        val = np.linalg.solve(a=a, b=b)
+
+        x = val[0] * self._a + self._x0
+        y = val[0] * self._b + self._y0
+        z = val[0] * self._c + self._z0
+
+        p_l1 = self.get_path()
+        p_l2 = line.get_path()
+
+        if (p_l1[0]['x'] < x < p_l1[1]['x'] or p_l1[1]['x'] < x < p_l1[0]['x']) and\
+                (p_l2[0]['x'] < x < p_l2[1]['x'] or p_l2[1]['x'] < x < p_l2[0]['x']):
+            if (p_l1[0]['y'] < y < p_l1[1]['y'] or p_l1[1]['y'] < y < p_l1[0]['y']) and\
+                    (p_l2[0]['y'] < y < p_l2[1]['y'] or p_l2[1]['y'] < y < p_l2[0]['y']):
+                # In most cases where we use intersection, everything will be in the z-plane, therefore we check <=
+                # for the z-axis
+                if (p_l1[0]['z'] <= z <= p_l1[1]['z'] or p_l1[1]['z'] <= z <= p_l1[0]['z']) and\
+                        (p_l2[0]['z'] <= z <= p_l2[1]['z'] or p_l2[1]['z'] <= z <= p_l2[0]['z']):
+                    ret_val = True
+                    #logger.debug('Val 1: %s, Val 2: %s', val[0], val[1])
+                    #logger.debug('x_int: %s, y_int: %s, z_int: %s', x, y, z)
+                    #logger.debug('x_l1: %s, y_l1: %s, z_l1: %s', self._x0, self._y0, self._z0)
+
+        return ret_val, Point(x, y, z)
 
     def signed_distance_to_point_xy(self, point):
         """
@@ -720,9 +784,9 @@ class GeometricFunctions():
             curr_dist += delta_dist
 
 
-        GeometricFunctions.plot_path(path1, color='g')
-        plt.title('normalized_path')
-        plt.show()
+        # GeometricFunctions.plot_path(path1, color='g')
+        # plt.title('normalized_path')
+        # plt.show()
 
         return path1
 
@@ -744,6 +808,149 @@ class GeometricFunctions():
                 })
 
     @staticmethod
+    def offset_curve(path, offset_scale, dir, divisions):
+        logger = logging.getLogger(__name__)
+        origininal_leading_edge = copy.deepcopy(path[0])
+        restart = False
+        original_curve = copy.deepcopy(path)
+        for ind in range(0, divisions):
+            path = GeometricFunctions.parallel_curve(path, offset_scale / divisions, dir)
+            num_intersections = GeometricFunctions.number_of_intersections_in_path(path)
+            logger.debug('Found %s intersections in path', num_intersections)
+
+        intersections = GeometricFunctions.get_all_intersection_points(path)
+        path = GeometricFunctions.clean_intersections(path, original_curve, offset_scale)
+
+        if dir == 0:
+            path.insert(0, origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+            path.append(origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+        else:
+            closest_point = None
+            min_dist = sys.maxsize
+            for intersection in intersections:
+                dist = np.sqrt((path[0] - intersection)**2)
+                if dist < min_dist:
+                    closest_point = intersection
+                    min_dist = dist
+
+            path.insert(0, copy.copy(closest_point))
+            path.append(copy.copy(closest_point))
+
+        return path
+
+    @staticmethod
+    def parallel_curve(path, offset_scale, dir, plot_debug=False):
+        logger = logging.getLogger(__name__)
+        offset_path = list()
+
+        center = copy.deepcopy(path[0])
+        for ind in range(1, len(path)):
+            center += path[ind]
+        center /= len(path)
+
+        norm1, norm2 = GeometricFunctions.normal_vector(path[-1], path[0], path[1])
+        if plot_debug:
+            plt.plot([path[0]['x'], path[0]['x'] + norm1['x'] * offset_scale],
+                     [path[0]['y'], path[0]['y'] + norm1['y'] * offset_scale],
+                     'k-')
+            plt.plot([path[0]['x'], path[0]['x'] + norm2['x'] * offset_scale],
+                     [path[0]['y'], path[0]['y'] + norm2['y'] * offset_scale],
+                     'y-')
+        vec = path[0] - center
+        sign = np.sign([vec * norm1, vec * norm2][dir])
+        norm = norm1 if dir == 0 else norm2
+        #offset_path.append(copy.deepcopy(path[0]) + Point(-offset_scale, 0, 0))
+        offset_path.append(path[0] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
+
+        for ind in range(1, len(path)-1):
+            norm1, norm2 = GeometricFunctions.normal_vector(path[ind-1], path[ind], path[ind+1])
+            if plot_debug:
+                plt.plot([path[ind]['x'], path[ind]['x'] + norm1['x'] * offset_scale],
+                         [path[ind]['y'], path[ind]['y'] + norm1['y'] * offset_scale],
+                         'k-')
+                plt.plot([path[ind]['x'], path[ind]['x'] + norm2['x'] * offset_scale],
+                         [path[ind]['y'], path[ind]['y'] + norm2['y'] * offset_scale],
+                         'y-')
+            vec = path[ind] - center
+            norm = norm1 if dir == 0 else norm2
+            #logger.debug('Vec: %s, norm1: %s, Sign: %s', vec, norm1, np.sign(norm1 * vec))
+            offset_path.append(path[ind] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
+
+        norm1, norm2 = GeometricFunctions.normal_vector(path[-2], path[-1], path[0])
+        if plot_debug:
+            plt.plot([path[-1]['x'], path[-1]['x'] + norm1['x'] * offset_scale],
+                     [path[-1]['y'], path[-1]['y'] + norm1['y'] * offset_scale],
+                     'k-')
+            plt.plot([path[-1]['x'], path[-1]['x'] + norm2['x'] * offset_scale],
+                     [path[-1]['y'], path[-1]['y'] + norm2['y'] * offset_scale],
+                     'y-')
+        vec = path[-1] - center
+        norm = norm1 if dir == 0 else norm2
+        offset_path.append(path[-1] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
+        #offset_path.append(path[0] + Point(-offset_scale, 0, 0))
+
+        return offset_path
+
+    @staticmethod
+    def clean_intersections(path, original_path, offset_amount):
+        logger = logging.getLogger(__name__)
+        cleaned_path = list()
+
+        for ind in range(0, len(path)):
+            keep = True
+            for ind2 in range(0, len(original_path)):
+                dist = np.sqrt((path[ind] - original_path[ind2])**2)
+                if dist < offset_amount*0.99:
+                    keep = False
+            if keep:
+                cleaned_path.append(path[ind])
+
+        return cleaned_path
+
+    @staticmethod
+    def get_all_intersection_points(path):
+        ret_val = list()
+        for ind in range(0, len(path)-1):
+            line = Line.line_from_points(path[ind], path[ind+1])
+            for ind2 in range(ind+1, len(path)-1):
+                if ind != ind2:
+                    line2 = Line.line_from_points(path[ind2], path[ind2+1])
+                    intersected, point = line.intersects(line2)
+                    if intersected:
+                        ret_val.append(point)
+        return ret_val
+
+    @staticmethod
+    def number_of_intersections_in_path(path):
+        ret_val = 0
+        for ind in range(0, len(path)-1):
+            line = Line.line_from_points(path[ind], path[ind+1])
+            for ind2 in range(ind+1, len(path)-1):
+                if ind != ind2:
+                    line2 = Line.line_from_points(path[ind2], path[ind2+1])
+                    intersected, point = line.intersects(line2)
+                    if intersected:
+                        ret_val += 1
+        return ret_val
+
+    @staticmethod
+    def normal_vector(prev_point, curr_point, next_point):
+        """
+
+        :param Point prev_point:
+        :param Point curr_point:
+        :param Point next_point:
+        :return:
+        """
+        diff_back = curr_point - prev_point
+        diff_forw = next_point - curr_point
+
+        norm_1 = (Point(-diff_back['y'], diff_back['x'], 0) + Point(-diff_forw['y'], diff_forw['x'], 0))/2.0
+        norm_2 = (Point(diff_back['y'], -diff_back['x'], 0) + Point(diff_forw['y'], -diff_forw['x'], 0))/2.0
+
+        return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
+
+    @staticmethod
     def plot_path(path, color):
         len_path = len(path)
 
@@ -754,7 +961,11 @@ class GeometricFunctions():
             x[i] = path[i]['x']
             y[i] = path[i]['y']
 
-        plt.plot(x, y, color)
+        if color is not None:
+            plt.plot(x, y, color)
+        else:
+            plt.plot(x, y)
+
         plt.scatter(x, y)
 
     @staticmethod
