@@ -12,16 +12,123 @@ from slicer.wire_cutter import WireCutter
 from util import util_functions
 
 
+class CrossSectionPair():
+    """ Contains a Pair of CrossSections that are related together spatially. Used to transform CrossSection pair
+    uniformly, an turn into CutPaths.
+    :param CrossSection section1:
+    :param CrossSection section2:
+    """
+    def __init__(self, section1, section2):
+        self.section1 = copy.deepcopy(section1)
+        self.section2 = copy.deepcopy(section2)
+
+    def subdivide(self, num_sections):
+        """
+
+        :param int num_sections:
+        :return:
+        """
+        ret_val = list()
+        if num_sections < 2:
+            ret_val = [self]
+        else:
+
+            center = prim.Point(0, 0, 0)
+            points1, points2 = self.get_path()
+
+            start_point1 = points1[0]
+            start_point2 = points2[0]
+
+            for point in points1:
+                center += point
+            center /= len(points1)
+            hole1, hole2 = self.section1.get_path_hole(), self.section2.get_path_hole()
+
+            if hole1 is not None:
+                start_point1_hole = hole1[0]
+                start_point2_hole = hole2[0]
+            else:
+                start_point1_hole = None
+                start_point2_hole = None
+
+            for index in range(num_sections):
+                curr_section1 = list()
+                curr_section2 = list()
+                arc_len = 360/num_sections
+                upper_range = arc_len * (index+1)
+                lower_range = arc_len * index
+                for point in points1:
+                    theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                    if lower_range < theta <= upper_range:
+                        curr_section1.append(point)
+                if hole1 is not None:
+                    tmp_list = list()
+                    for point in hole1:
+                        theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                        if lower_range < theta <= upper_range:
+                            tmp_list.append(point)
+                    for point in reversed(tmp_list):
+                        curr_section1.append(point)
+                else:
+                    curr_section1.append(prim.Point(0, 0, 0))
+
+                for point in points2:
+                    theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                    if lower_range < theta <= upper_range:
+                        curr_section2.append(point)
+                if hole2 is not None:
+                    tmp_list = list()
+                    for point in hole2:
+                        theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                        if lower_range < theta <= upper_range:
+                            tmp_list.append(point)
+                    for point in reversed(tmp_list):
+                        curr_section2.append(point)
+                else:
+                    curr_section2.append(prim.Point(0, 0, 0))
+
+                if start_point1 in curr_section1:
+                    path1 = prim.GeometricFunctions.close_path(PointManip.reorder_2d_cw(curr_section1, method=2))
+                    path2 = prim.GeometricFunctions.close_path(PointManip.reorder_2d_cw(curr_section2, method=2))
+                else:
+                    path1 = prim.GeometricFunctions.close_path(curr_section1)
+                    path2 = prim.GeometricFunctions.close_path(curr_section2)
+
+                ret_val.append(CrossSectionPair(section1=CrossSection(prim.Path(path1)),
+                                                section2=CrossSection(prim.Path(path2))))
+
+        return ret_val
+
+    def plot_subdivide_debug(self, num_sections, radius):
+        center = prim.Point(0, 0, 0)
+        points1, _ = self.get_path()
+        for point in points1:
+            center += point
+        center /= len(points1)
+        self.section1.plot(color=None)
+        self.section2.plot(color=None)
+        for index in range(num_sections):
+            arc_len = 360/num_sections
+            upper_range = arc_len * (index+1)
+            plt.plot([center['x'], center['x'] + np.cos(np.deg2rad(upper_range))*radius],
+                     [center['y'], center['y'] + np.sin(np.deg2rad(upper_range))*radius])
+
+    def get_path(self):
+        return self.section1.get_path(), self.section2.get_path()
+
+
 class CrossSection():
     """
     Contains a list of sections. Sections are any class that defines a get_path function. Valid CrossSections must
-    contain at least one section, and the end of one section must be the start of the next section.
+    contain at least one section, and the end of one section must be the start of the next section. Also contains Holes
+    which are CrossSections that are internal to the current CrossSection
     """
 
     def __init__(self, section_list):
         if not isinstance(section_list, list):
             section_list = [section_list]
         self._section_list = section_list
+        self.holes = None
 
     def __getitem__(self, item):
         if item < len(self._section_list):
@@ -49,6 +156,41 @@ class CrossSection():
         for section in self.section_list:
             path.extend(section.get_path())
         return path
+
+    def get_path_hole(self):
+        ret_val = None
+        if self.holes is not None:
+            path = list()
+            for hole in self.holes:
+                path.extend(hole.get_path())
+            ret_val = path
+        return ret_val
+
+    def plot(self, color=None, show=True, scatter=False):
+        logger = logging.getLogger(__name__)
+        prim.GeometricFunctions.plot_path(self.get_path(), color=color, scatter=scatter)
+        if self.holes is not None:
+            logger.debug('hole_path: %s', self.get_path_hole())
+            prim.GeometricFunctions.plot_path(self.get_path_hole(), color=color, scatter=scatter)
+
+    def translate(self, vector):
+        PointManip.Transform.translate(self.get_path(), vector=vector)
+        if self.holes is not None:
+            PointManip.Transform.translate(self.get_path_hole(), vector=vector)
+
+    def add_simple_hole_from_offset(self, thickness):
+        """
+
+        :param float or int thickness: wall_thickenss in mm
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+        # path = prim.Path(prim.GeometricFunctions.offset_curve(self.get_path(), thickness, dir=1, divisions=1))
+        path = copy.deepcopy(self.get_path())
+        path = prim.GeometricFunctions.clean_intersections(prim.GeometricFunctions.parallel_curve(path, thickness, 1,
+                                                                                                  False), path,
+                                                           thickness)
+        self.holes = [CrossSection(prim.Path(path))]
 
     @property
     def section_list(self):
@@ -373,78 +515,112 @@ class CutPath():
     def get_next_start_points(self):
         return self._cut_list_1[-1].get_path()[-1], self._cut_list_2[-1].get_path()[-1]
 
+
 class STL():
     """
 
+    :param str _file_path:
+    :param logging.Logger logger:
+    :param list[CrossSection] or None cross_sections:
+    :param list[tm.Path2D] or None trimesh_cross_section:
     """
 
-    def __init__(self, file_path, logger=None, units='cm'):
-        """
+    def __init__(self, file_path, units='cm'):
 
-        :param file_path:
-        """
-        if logger is None:
-            logger = logging.getLogger()
-        self.logger = logger
+        self.logger = logging.getLogger(__name__)
         self.cross_sections = None
+        self.trimesh_cross_sections = None
         self._file_path = file_path
         self._setup(units=units)
 
-    def slice_into_cross_sections(self, origin_plane, spacing):
+    def slice_into_cross_sections(self, origin_plane, spacing, length):
         """
 
         :param Plane origin_plane:
         :param float spacing:
         :return:
         """
-        self.cross_sections = list()
+        self.trimesh_cross_sections = list()
+        heights = list()
+        for i in range(length):
+            heights.append(spacing*i)
         origin = np.array(origin_plane.origin)
         normal = np.array(origin_plane.normal)
-        section = self.mesh.section(plane_origin=origin, plane_normal=normal)
-        if section is not None:
-            self.cross_sections.append(section)
-            next_origin = origin + normal * spacing
-            while section is not None:
-                section = self.mesh.section(plane_origin=next_origin, plane_normal=normal)
-                next_origin = next_origin + normal * spacing
-                if section is not None:
-                    self.cross_sections.append(section)
+        sections = self.mesh.section_multiplane(plane_origin=origin, plane_normal=normal, heights=heights)
+        if sections is not None:
+            self.trimesh_cross_sections.extend(sections)
+            self.cross_sections = list()
+            for section in sections:
+                points = list()
+                for ind in range(0, len(section.discrete[0])):
+                    points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], 0))
+                path = prim.GeometricFunctions.normalize_path_points(PointManip.reorder_2d_cw(points, method=1), 516)
+                self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
+                self.logger.debug('section: %s', self.cross_sections[-1])
 
-            next_origin = origin - normal * spacing
-            section = self.mesh.section(plane_origin=next_origin, plane_normal=normal)
-            if section is not None:
-                self.cross_sections.append(section)
-                next_origin = origin + normal * spacing
-                while section is not None:
-                    section = self.mesh.section(plane_origin=next_origin, plane_normal=normal)
-                    next_origin = next_origin - normal * spacing
-                    if section is not None:
-                        self.cross_sections.append(section)
+            self.center_cross_sections()
+            self.close_sections()
         else:
             raise AttributeError('Error: Plane with origin(%s) does not intersect the STL' % origin_plane.origin)
 
     def plot_stl(self):
         self.mesh.show()
 
-    def plot_cross_sections(self, bounds):
+    def plot_cross_sections(self, show=False):
+        logger = logging.getLogger(__name__)
         if self.cross_sections is None:
             raise AttributeError('Error: Cross sections have not been generated for this STL')
         num_sections = len(self.cross_sections)
-        self.logger.info('Number of sections being plotted: %s' % num_sections)
+        logger.info('Number of sections being plotted: %s', num_sections)
         (r, c) = util_functions.get_r_and_c_from_num(num_sections)
-        self.logger.info('Creating section subplots with r: %s and c: %s' % (r, c))
+        logger.info('Creating section subplots with r: %s and c: %s', r, c)
         i = 1
         for section in self.cross_sections:
             ax = plt.subplot(int(r), int(c), i)
-            section.to_planar()[0].plot_entities()
-            ax.set_title('Cross Section: %s' % i)
-            ax.set_xlim([bounds[0][1], bounds[1][1]])
-            ax.set_ylim([bounds[0][2], bounds[1][2]])
+            section.plot(show=False, scatter=False)
+            ax.set_title('Cross Section: %s\n' % i)
+            ax.set_aspect('equal', 'datalim')
             i += 1
-            plt.show(block=False)
+        fig = plt.gcf()
+        fig.set_size_inches(16, 9)
+        plt.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, wspace=0.4, hspace=0.5)
+        if show:
+            plt.show()
+
+    def plot_trimesh_cross_sections(self, show=False):
+        logger = logging.getLogger(__name__)
+        if self.cross_sections is None:
+            raise AttributeError('Error: Cross sections have not been generated for this STL')
+        num_sections = len(self.cross_sections)
+        logger.info('Number of sections being plotted: %s', num_sections)
+        (r, c) = util_functions.get_r_and_c_from_num(num_sections)
+        logger.info('Creating section subplots with r: %s and c: %s', r, c)
+        i = 1
+        for section in self.trimesh_cross_sections:
+            ax = plt.subplot(int(r), int(c), i)
+            axis = section.plot_discrete(show=False)
+            ax.set_title('Cross Section: %s' % i)
+            i += 1
+        fig = plt.gcf()
+        fig.set_size_inches(16, 9)
+        plt.subplots_adjust(left=0.05, bottom=0.05, right=0.95, top=0.95, wspace=0.4, hspace=0.5)
+        if show:
+            plt.show()
+
+    def center_cross_sections(self):
+        center = prim.Point(0, 0, 0)
+        for point in self.cross_sections[0].get_path():
+            center += point
+        center /= len(self.cross_sections[0].get_path())
+        for section in self.cross_sections:
+            section.translate(vector=[-center['x'], -center['y'], -center['z']])
+
+    def close_sections(self):
+        for ind in range(0, len(self.cross_sections)):
+            self.cross_sections[ind] = CrossSection(prim.Path(prim.GeometricFunctions.close_path(
+                self.cross_sections[ind].get_path())))
 
     def _setup(self, units):
-        tm.util.attach_to_log(level=logging.INFO)
         self.mesh = tm.load(self._file_path, force='mesh')
         self.mesh.metadata['units'] = units
 

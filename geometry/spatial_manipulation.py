@@ -1,4 +1,5 @@
 import copy
+import logging
 import sys
 import timeit
 
@@ -71,7 +72,7 @@ class PointManip():
                 point['z'] = res[2]
 
     @staticmethod
-    def reorder_2d_cw(points):
+    def reorder_2d_cw(points, method=0):
         """
         takes a list of points and reorders the list so that the list form a continuous line rotating clockwise
         assumes x and y are the two dimensions of interest
@@ -89,23 +90,42 @@ class PointManip():
         center = Point(center[0], center[1], center[2])
 
         start_polar = timeit.default_timer()
-        sorted_points = PointManip._complex_polar_sort(points)
-        print('Took %ss to complete complex_polar_sort' % (timeit.default_timer() - start_polar))
+        if method == 0:
+            sorted_points = PointManip._complex_polar_sort(points)
+            name = 'complex_polar_sort'
+        elif method == 1:
+            sorted_points = PointManip._polar_sort(points, center)
+            name = 'polar_sort'
+        elif method == 2:
+            sorted_points = PointManip._loop_dist_sort(points)
+            name = 'loop_dist_sort'
+        print('Took %ss to complete %s' % (timeit.default_timer() - start_polar, name))
 
         return np.array(sorted_points)
 
     @staticmethod
     def _polar_sort(points, center):
+        logger = logging.getLogger(__name__)
         polar_coords = dict()
         keys = list()
         sorted_points = list()
         for p in points:
-            theta = np.arctan2((p['y'] - center['y']), (p['x'] - center['x']))
+            theta = np.rad2deg(np.arctan2((p['y'] - center['y']), (p['x'] - center['x'])))
+            theta -= 180
+            if theta < 0:
+                theta += 360
+
             keys.append(theta)
             polar_coords[theta] = p
-        keys.sort()
-        for key in keys:
+        logger.debug('keys: %s', keys)
+        rev_keys = copy.deepcopy(keys)
+        rev_keys.sort(reverse=True)
+        rev_keys_list = list()
+        for key in rev_keys:
+            rev_keys_list.append(key)
             sorted_points.append(polar_coords[key])
+
+        logger.debug('Sorted keys: %s', rev_keys)
 
         return sorted_points
 
@@ -173,8 +193,8 @@ class PointManip():
 
         lines = list()
         closest_points = list()
-        left_most_x = 10000000
-        right_most_x = 0
+        left_most_x = sys.maxsize
+        right_most_x = -sys.maxsize
         left_most_point = None
         right_most_point = None
         for p in points:
@@ -298,10 +318,9 @@ class PointManip():
 
     @staticmethod
     def _loop_dist_sort(points):
-        angle_weight = 1
         sorted_points = list()
-        left_most_x = 10000000
-        right_most_x = 0
+        left_most_x = sys.maxsize
+        right_most_x = -sys.maxsize
         left_most_point = None
         for p in points:
             if p['x'] > right_most_x:
@@ -310,86 +329,21 @@ class PointManip():
                 left_most_x = p['x']
                 left_most_point = p
 
-        prev_point = None
         sorted_points.append(left_most_point)
-        trailing_edge_um = True
-        for i in range(1, len(points)):
+        for i in range(0, len(points)):
             curr_point = sorted_points[-1]
-            prev_angle = None
-            if prev_point is not None:
-                prev_angle = np.rad2deg(np.arctan2(curr_point['y'] - prev_point['y'],
-                                                   curr_point['x'] - prev_point['x']))
             closest_point = None
             min_dist = 1000000000
-            y_weight = 4
-            angles = list()
             for p in points:
                 if p not in sorted_points:
                     # Use a weighted distance that places more emphasis on the x_distance, this helps with the trailing
                     # edge, highly cambered profiles will still be incorrect
-                    dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + (y_weight * (curr_point['y'] - p['y'])) ** 2)
-                    weighted_dist = dist
-                    curr_angle = None
-                    delta_angle = None
-                    if prev_point is not None:
-                        curr_angle = np.rad2deg(np.arctan2(curr_point['y'] - p['y'], curr_point['x']-p['x']))
-                        # plt.plot([prev_point['x'], curr_point['x']], [prev_point['y'], curr_point['y']])
-                        # plt.plot([curr_point['x'], p['x']], [curr_point['y'], p['y']])
-                        delta_angle = abs(curr_angle-prev_angle)
-                        angles.append(delta_angle)
-                        # plt.legend(['Previous Line', 'Current Line'])
-                        # plt.title('Delta Angle: %s, Last Angle: %s, Curr Angle: %s' %
-                        #           (delta_angle, prev_angle, curr_angle))
-                        # plt.show()
-                        weighted_dist = dist * (1-angle_weight) + (delta_angle/100) * angle_weight
-                    if weighted_dist < min_dist and p not in sorted_points:
+                    dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + (curr_point['y'] - p['y']) ** 2)
+                    if dist < min_dist and p not in sorted_points:
                         min_dist = dist
                         closest_point = p
                         # take care of the trailing edge with overlapping x coords
             if closest_point is not None:
-                if closest_point['x'] == right_most_x and trailing_edge_um:
-                    for pon in points:
-                        if pon is not closest_point and pon['x'] == right_most_x:
-                            c_l = closest_point - sorted_points[-1]
-                            ang_c_l = np.rad2deg(np.arctan2(c_l['y'], c_l['x']))
-                            p_l = sorted_points[-1] - sorted_points[-2]
-                            ang_p_l = np.rad2deg(np.arctan2(p_l['y'], p_l['x']))
-                            pon_l = pon - sorted_points[-1]
-                            ang_pon_l = np.rad2deg(np.arctan2(pon_l['y'], pon_l['x']))
-
-                            dist_curr = abs(ang_c_l - ang_p_l)
-                            dist_alt = abs(ang_pon_l - ang_p_l)
-
-                            if dist_alt < dist_curr:
-                                closest_point = pon
-                            trailing_edge_um = False
-                # If this is the first point, search for the next closest and choose the one with the higher y value
-                if i == 1:
-                    min_dist = 1000000000
-                    closest_point_2 = None
-                    for p in points:
-                        dist = np.sqrt((curr_point['x'] - p['x']) ** 2 + ((curr_point['y'] - p['y'])) ** 2)
-                        if dist < min_dist and p not in sorted_points and p is not closest_point:
-                            min_dist = dist
-                            closest_point_2 = p
-                    if closest_point['y'] < closest_point_2['y']:
-                        closest_point = closest_point_2
-                if prev_point is not None:
-                    print('*' * 80)
-                    for angle in angles:
-                        print('\tDelta Angle: %s' % angle)
-                    print('Point %s, prev_angle: %s, curr_angle: %s, delta_angle: %s, dist: %s, weighted_dist: %s' %
-                          (i, prev_angle, curr_angle, delta_angle, dist, weighted_dist))
-
-                    # print('*' * 80)
-                    # plt.plot([prev_point['x'], curr_point['x']], [prev_point['y'], curr_point['y']])
-                    # plt.plot([curr_point['x'], closest_point['x']], [curr_point['y'], closest_point['y']])
-                    # plt.legend(['Previous Line', 'Current Line'])
-                    # plt.title('Delta Angle: %s, Last Angle: %s, Curr Angle: %s' %
-                    #           (delta_angle, prev_angle, curr_angle))
-                    # plt.axis('equal')
-                    # plt.show()
-                prev_point = copy.deepcopy(curr_point)
                 sorted_points.append(closest_point)
 
         return sorted_points

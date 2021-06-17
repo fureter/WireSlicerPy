@@ -8,6 +8,7 @@ import logging
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -200,6 +201,8 @@ class Line(Section):
         :param Point point2: Offset point from the origin, used to find a, b, c.
         """
         logger = logging.getLogger(__name__)
+        if point1 is None or point2 is None:
+            logger.debug('Something is very wrong')
         x0 = point1['x']
         y0 = point1['y']
         z0 = point1['z']
@@ -220,31 +223,36 @@ class Line(Section):
 
         ret_val = False
 
-        sx, sy = line._a, line._b
-        rx, ry = self._a, self._b
+        val = None
+        x, y, z = None, None, None
+        if not self.parallel(line):
+            try:
+                sx, sy = line._a, line._b
+                rx, ry = self._a, self._b
 
-        a = np.array([[rx, -sx],
-                      [ry, -sy]])
-        b = np.array([[-self._x0 + line._x0], [-self._y0 + line._y0]])
+                a = np.array([[rx, -sx],
+                              [ry, -sy]])
+                b = np.array([[-self._x0 + line._x0], [-self._y0 + line._y0]])
+                val = np.linalg.solve(a=a, b=b)
+            except np.linalg.LinAlgError:
+                raise np.linalg.LinAlgError('Tried all possible coordinate combinations')
 
-        val = np.linalg.solve(a=a, b=b)
+            x = val[0] * self._a + self._x0
+            y = val[0] * self._b + self._y0
+            z = val[0] * self._c + self._z0
 
-        x = val[0] * self._a + self._x0
-        y = val[0] * self._b + self._y0
-        z = val[0] * self._c + self._z0
+            p_l1 = self.get_path()
+            p_l2 = line.get_path()
 
-        p_l1 = self.get_path()
-        p_l2 = line.get_path()
-
-        if (p_l1[0]['x'] < x < p_l1[1]['x'] or p_l1[1]['x'] < x < p_l1[0]['x']) and\
-                (p_l2[0]['x'] < x < p_l2[1]['x'] or p_l2[1]['x'] < x < p_l2[0]['x']):
-            if (p_l1[0]['y'] < y < p_l1[1]['y'] or p_l1[1]['y'] < y < p_l1[0]['y']) and\
-                    (p_l2[0]['y'] < y < p_l2[1]['y'] or p_l2[1]['y'] < y < p_l2[0]['y']):
-                # In most cases where we use intersection, everything will be in the z-plane, therefore we check <=
-                # for the z-axis
-                if (p_l1[0]['z'] <= z <= p_l1[1]['z'] or p_l1[1]['z'] <= z <= p_l1[0]['z']) and\
-                        (p_l2[0]['z'] <= z <= p_l2[1]['z'] or p_l2[1]['z'] <= z <= p_l2[0]['z']):
-                    ret_val = True
+            if (p_l1[0]['x'] < x < p_l1[1]['x'] or p_l1[1]['x'] < x < p_l1[0]['x']) and\
+                    (p_l2[0]['x'] < x < p_l2[1]['x'] or p_l2[1]['x'] < x < p_l2[0]['x']):
+                if (p_l1[0]['y'] < y < p_l1[1]['y'] or p_l1[1]['y'] < y < p_l1[0]['y']) and\
+                        (p_l2[0]['y'] < y < p_l2[1]['y'] or p_l2[1]['y'] < y < p_l2[0]['y']):
+                    # In most cases where we use intersection, everything will be in the z-plane, therefore we check <=
+                    # for the z-axis
+                    if (p_l1[0]['z'] <= z <= p_l1[1]['z'] or p_l1[1]['z'] <= z <= p_l1[0]['z']) and\
+                            (p_l2[0]['z'] <= z <= p_l2[1]['z'] or p_l2[1]['z'] <= z <= p_l2[0]['z']):
+                        ret_val = True
                     #logger.debug('Val 1: %s, Val 2: %s', val[0], val[1])
                     #logger.debug('x_int: %s, y_int: %s, z_int: %s', x, y, z)
                     #logger.debug('x_l1: %s, y_l1: %s, z_l1: %s', self._x0, self._y0, self._z0)
@@ -269,6 +277,20 @@ class Line(Section):
             ret_val = True
         if self._p2[dim] <= coord <= self._p1[dim]:
             ret_val = True
+        return ret_val
+
+    def parallel(self, line):
+        counter = 0
+
+        if self._a == line._a:
+            counter += 1
+        if self._b == line._b:
+            counter += 1
+        if self._c == line._c:
+            counter += 1
+
+        ret_val = True if counter > 1 else False
+
         return ret_val
 
     def plot(self):  # pragma: no cover
@@ -662,7 +684,7 @@ class GeometricFunctions():
     @staticmethod
     def path_length(path):
         length = 0
-        if isinstance(path, list):
+        if isinstance(path, list) or isinstance(path, np.ndarray):
             for idx in range(0, len(path) - 1):
                 diff = path[idx + 1] - path[idx]
                 length += np.sqrt(diff ** 2)
@@ -700,7 +722,7 @@ class GeometricFunctions():
 
         valid_region = True if start_point is None else False
 
-        if isinstance(path, list):
+        if isinstance(path, list) or isinstance(path, np.ndarray):
             for idx in range(0, len(path) - 1):
                 # If a start point was provided, check if we have reached the start point and set valid_region to true
                 if start_point is not None and path[idx] == start_point:
@@ -730,6 +752,19 @@ class GeometricFunctions():
             raise NotImplementedError('Error: get_point_along_path currently only implemented for a list'
                                       ' of points defining the path')
         return point
+
+    @staticmethod
+    def close_path(path):
+        """
+        Assumes path has been sorted.
+        :param path:
+        :return:
+        """
+        if isinstance(path, list):
+            path.append(copy.deepcopy(path[0]))
+        elif isinstance(path, np.ndarray):
+            path = np.append(path, [copy.deepcopy(path[0])])
+        return path
 
     @staticmethod
     def get_max_thickness(path, dim, ref_dim):
@@ -832,9 +867,9 @@ class GeometricFunctions():
                 if dist < min_dist:
                     closest_point = intersection
                     min_dist = dist
-
-            path.insert(0, copy.copy(closest_point))
-            path.append(copy.copy(closest_point))
+            if closest_point is not None:
+                path.insert(0, copy.copy(closest_point))
+                path.append(copy.copy(closest_point))
 
         return path
 
@@ -951,7 +986,7 @@ class GeometricFunctions():
         return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
 
     @staticmethod
-    def plot_path(path, color):
+    def plot_path(path, color, scatter=True):
         len_path = len(path)
 
         x = np.zeros(len_path)
@@ -965,8 +1000,30 @@ class GeometricFunctions():
             plt.plot(x, y, color)
         else:
             plt.plot(x, y)
+        if scatter:
+            plt.scatter(x, y)
 
-        plt.scatter(x, y)
+    @staticmethod
+    def animate_path(path):
+        fig, ax = plt.subplots()
+        xdata1, ydata1 = [], []
+        ln1, = plt.plot([], [], 'r')
+
+        def init():
+            ax.set_xlim(-400, 400)
+            ax.set_ylim(-400, 400)
+            return ln1,
+
+        def update(frame):
+            xdata1.append(path[frame]['x'])
+            ydata1.append(path[frame]['y'])
+            ln1.set_data(xdata1, ydata1)
+
+            return ln1,
+
+        ani = animation.FuncAnimation(fig, update, frames=list(range(0, len(path))),
+                                      init_func=init, blit=True)
+        plt.show()
 
     @staticmethod
     def _transform_dim(item, dim):
