@@ -1,5 +1,6 @@
 import copy
 import logging
+import timeit
 
 import numpy as np
 import trimesh as tm
@@ -14,7 +15,8 @@ from util import util_functions
 
 class CrossSectionPair():
     """ Contains a Pair of CrossSections that are related together spatially. Used to transform CrossSection pair
-    uniformly, an turn into CutPaths.
+     uniformly, an turn into CutPaths.
+
     :param CrossSection section1:
     :param CrossSection section2:
     """
@@ -37,19 +39,11 @@ class CrossSectionPair():
             points1, points2 = self.get_path()
 
             start_point1 = points1[0]
-            start_point2 = points2[0]
 
             for point in points1:
                 center += point
             center /= len(points1)
             hole1, hole2 = self.section1.get_path_hole(), self.section2.get_path_hole()
-
-            if hole1 is not None:
-                start_point1_hole = hole1[0]
-                start_point2_hole = hole2[0]
-            else:
-                start_point1_hole = None
-                start_point2_hole = None
 
             for index in range(num_sections):
                 curr_section1 = list()
@@ -98,6 +92,19 @@ class CrossSectionPair():
                                                 section2=CrossSection(prim.Path(path2))))
 
         return ret_val
+
+    @staticmethod
+    def subdivide_list(num_sections, section_list):
+        """
+
+        :param num_sections:
+        :param list[CrossSectionPair] section_list:
+        :return:
+        """
+        subdivided_list = list()
+        for section_pair in section_list:
+            subdivided_list.extend(section_pair.subdivide(num_sections))
+        return subdivided_list
 
     def plot_subdivide_debug(self, num_sections, radius):
         center = prim.Point(0, 0, 0)
@@ -178,6 +185,40 @@ class CrossSection():
         if self.holes is not None:
             PointManip.Transform.translate(self.get_path_hole(), vector=vector)
 
+    def point_in_section(self, point):
+        """
+        Uses the even-odd rule algorithm to check whether a point lies within the CrossSection.
+
+        :param point:
+        :return: Boolean indicator of whether the point is within the section.
+        :rtype: bool
+        """
+        path = self.get_path()
+        bound_box = prim.GeometricFunctions.get_bounding_box_from_path(path)
+        if ((point['x'] < bound_box[0][0] or bound_box[1][0] < point['x'])
+                or (point['y'] < bound_box[0][1] or bound_box[1][1] < point['y'])):
+            ret_val = False
+        else:
+            max_y_p, _ = prim.GeometricFunctions.get_point_from_max_coord(path, 'y')
+            min_y_p = prim.GeometricFunctions.get_point_from_min_coord(path, 'y')
+
+            test_line = prim.Line.line_from_points(prim.Point(point['x'], point['y'], 0),
+                                                   prim.Point(point['x'], min_y_p['y']-1, 0))
+
+            times_intersected = 0
+            for ind in range(0, len(path)-1):
+                point_1 = prim.Point(path[ind]['x'], path[ind]['y'], 0)
+                point_2 = prim.Point(path[ind+1]['x'], path[ind+1]['y'], 0)
+                tmp_line = prim.Line.line_from_points(point_1, point_2)
+                #test_line.plot()
+                #tmp_line.plot()
+                #plt.show()
+                if test_line.intersects(tmp_line)[0]:
+                    times_intersected += 1
+            ret_val = (times_intersected % 2) == 1
+
+        return ret_val
+
     def add_simple_hole_from_offset(self, thickness):
         """
 
@@ -253,11 +294,11 @@ class CutPath():
         start1, start2 = cut_path.get_next_start_points()
         next_point1 = prim.Point(0, start1['y'], root_z)
         next_point2 = prim.Point(0, start2['y'], tip_z)
-        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2)
+        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2, fast_cut=True)
 
         next_point1 = prim.Point(0, wire_cutter.start_height, root_z)
         next_point2 = prim.Point(0, wire_cutter.start_height, tip_z)
-        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2)
+        cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2, fast_cut=True)
 
         return next_point1, next_point2
 
@@ -305,9 +346,9 @@ class CutPath():
         if wire_cutter.kerf is not None:
             if wing.root_chord > wing.tip_chord:
                 kerf_root = wire_cutter.kerf
-                kerf_tip = wire_cutter.kerf * wing.root_chord/wing.tip_chord
+                kerf_tip = wire_cutter.kerf * wing.root_chord/wing.tip_chord * 1.6
             else:
-                kerf_root = wire_cutter.kerf * wing.root_chord/wing.tip_chord
+                kerf_root = wire_cutter.kerf * wing.root_chord/wing.tip_chord * 1.6
                 kerf_tip = wire_cutter.kerf
             if debug_kerf:
                 prim.GeometricFunctions.plot_path(root_foil, 1)
@@ -373,7 +414,7 @@ class CutPath():
 
         next_point1 += root_foil[0] - next_point1
         logger.debug('Next Point X after offset: %s', next_point1['x'])
-        next_point2 += tip_foil[0] -next_point2
+        next_point2 += tip_foil[0] - next_point2
         logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
@@ -417,7 +458,7 @@ class CutPath():
 
         next_point1 += root_foil[0] - next_point1
         logger.debug('Next Point X after offset: %s', next_point1['x'])
-        next_point2 += tip_foil[0] -next_point2
+        next_point2 += tip_foil[0] - next_point2
         logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=False)
@@ -428,6 +469,35 @@ class CutPath():
         cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
 
         CutPath._add_loopback(cut_path, wire_cutter, root_z, tip_z)
+
+        return cut_path
+
+    @staticmethod
+    def create_cut_path_from_cross_section_pair_list(cross_section_pairs, work_piece, wire_cutter, output_dir):
+        """
+
+        :param list[CrossSectionPair] cross_section_pairs:
+        :return: Returns a CutPath created from the cross_section_pairs
+        :rtype: CutPath
+        """
+        logger = logging.getLogger(__name__)
+        cut_path = CutPath([], [])
+        start = timeit.default_timer()
+        PointManip.align_cross_sections_on_workpiece(cross_section_pairs, work_piece, output_dir=output_dir,
+                                                     wire_cutter=wire_cutter, distance_between_sections=8)
+        logger.debug('Finished aligning cross sections on workpiece, took %ss', timeit.default_timer() - start)
+
+        # todo: normalize cross section pair lists here?
+
+        section_link_list = PointManip.create_section_links_for_cross_section_pairs(cross_section_pairs)
+
+        for ind in range(0, len(cross_section_pairs)):
+            for link_ind in range(0, len(section_link_list[ind])):
+                cut_path.add_segment_to_cut_lists(section_link_list[ind][link_ind][0],
+                                                  section_link_list[ind][link_ind][1])
+            cut_path.add_segment_to_cut_lists(cross_section_pairs[ind].section1, cross_section_pairs[ind].section2)
+        for ind in range(len(cross_section_pairs), len(section_link_list)):
+            cut_path.add_segment_to_cut_lists(section_link_list[ind][0], section_link_list[ind][1])
 
         return cut_path
 
@@ -533,12 +603,43 @@ class STL():
         self._file_path = file_path
         self._setup(units=units)
 
+    def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, length, open_nose=False,
+                                   open_tail=False):
+        """
+
+        :param float wall_thickness:
+        :param prim.Plane origin_plane:
+        :param float spacing:
+        :param int length:
+        :param bool open_nose:
+        :param bool open_tail:
+        :return:
+        """
+        logger = logging.getLogger(__name__)
+        cross_section_pair_list = list()
+        self.slice_into_cross_sections(origin_plane, spacing, length)
+        cross_section_list = copy.deepcopy(self.cross_sections)
+
+        if open_nose and len(cross_section_list) > 1:
+            cross_section_list[0].add_simple_hole_from_offset(wall_thickness)
+        if open_tail and len(cross_section_list) > 2:
+            cross_section_list[-1].add_simple_hole_from_offset(wall_thickness)
+
+        for ind in range(1, len(cross_section_list)-1):
+            cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
+            cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1], cross_section_list[ind]))
+        cross_section_pair_list.append(CrossSectionPair(cross_section_list[-2], cross_section_list[-1]))
+
+        return cross_section_pair_list
+
     def slice_into_cross_sections(self, origin_plane, spacing, length):
         """
 
         :param Plane origin_plane:
+        :param int length:
         :param float spacing:
         :return:
+        :rtype: list[CrossSection]
         """
         self.trimesh_cross_sections = list()
         heights = list()
@@ -554,7 +655,7 @@ class STL():
                 points = list()
                 for ind in range(0, len(section.discrete[0])):
                     points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], 0))
-                path = prim.GeometricFunctions.normalize_path_points(PointManip.reorder_2d_cw(points, method=1), 516)
+                path = prim.GeometricFunctions.normalize_path_points(PointManip.reorder_2d_cw(points, method=1), 64)
                 self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
                 self.logger.debug('section: %s', self.cross_sections[-1])
 

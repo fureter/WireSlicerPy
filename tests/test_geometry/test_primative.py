@@ -2,11 +2,13 @@ import copy
 import logging
 import unittest
 
+import numpy as np
 import matplotlib.pyplot as plt
 
 from geometry.primative import Line
 from geometry.primative import Spline
 from geometry.primative import Point
+from geometry.primative import GeometricFunctions
 
 class TestLine(unittest.TestCase):
 
@@ -158,60 +160,76 @@ class TestPoint(unittest.TestCase):
 
 class TestSpline(unittest.TestCase):
     def setUp(self):
-        self.point1 = Point(0, 0, 0)
-        self.point2 = Point(0, 2, 0)
-        self.point3 = Point(2, 2, 0)
-        self.point4 = Point(2, 0, 0)
-        self.spline = Spline([self.point1, self.point2, self.point3, self.point4], resolution=1)
-        self.opened_spline = Spline([self.point1, self.point2, self.point3, self.point4], resolution=1, closed_loop=False)
+        self.points = list()
+        self.radius = 1000.0
+        self.num_points = 100
+        self.resolution = 5
+        self.origin = np.array([0, 0, 0])
+        for ind in range(self.num_points):
+            self.points.append(Point(self.origin[0] + np.cos(2*np.pi*ind/100.0)*self.radius,
+                                     self.origin[1] + np.sin(2*np.pi*ind/100.0)*self.radius,
+                                     self.origin[2]))
+        self.spline = Spline(self.points, resolution=self.resolution)
+        self.opened_spline = Spline(self.points, resolution=self.resolution, closed_loop=False)
 
-        self.logger = logging.getLogger()
-        # self.spline.plot_spline()
-        plt.show()
+        self.logger = logging.getLogger(__name__)
+
+    def tearDown(self):
+        pass
 
     def test_get_path(self):
-        path = self.spline.get_path()
-
-        # Closed loop includes point1 at the end to weakly enforce a closed loop
-        path_comp = [self.point1, self.point2, self.point3, self.point4, self.point1]
-
-        # Use almost equal due to floating point error
-        for ind in range(0, len(path)):
-            self.assertAlmostEqual(path[ind]['x'], path_comp[ind]['x'], 12)
-            self.assertAlmostEqual(path[ind]['y'], path_comp[ind]['y'], 12)
-            self.assertAlmostEqual(path[ind]['z'], path_comp[ind]['z'], 12)
 
         path_open = self.opened_spline.get_path()
 
-        # Opened loop does not repeat the initial point at the end.
-        path_comp_opened = [self.point1, self.point2, self.point3, self.point4]
+        # Closed loop includes point1 at the end to weakly enforce a closed loop
+        path_comp = copy.deepcopy(self.points)
 
         # Use almost equal due to floating point error
-        for ind in range(0, len(path_open)):
-            self.assertAlmostEqual(path_open[ind]['x'], path_comp_opened[ind]['x'], 12)
-            self.assertAlmostEqual(path_open[ind]['y'], path_comp_opened[ind]['y'], 12)
-            self.assertAlmostEqual(path_open[ind]['z'], path_comp_opened[ind]['z'], 12)
+        for ind in range(0, len(path_open)*self.resolution):
+            self.assertAlmostEqual(path_open[ind]['x'], path_comp[int(ind/self.resolution)]['x'], 12)
+            self.assertAlmostEqual(path_open[ind]['y'], path_comp[int(ind/self.resolution)]['y'], 12)
+            self.assertAlmostEqual(path_open[ind]['z'], path_comp[int(ind/self.resolution)]['z'], 12)
+
+        path = self.spline.get_path()
+
+        # Closed loop includes point1 at the end to weakly enforce a closed loop
+        path_comp.append(path_comp[0])
+
+        # Use almost equal due to floating point error
+        for ind in range(0, len(path)):
+            self.assertAlmostEqual(path[ind]['x'], path_comp[int(ind/self.resolution)]['x'], 12)
+            self.assertAlmostEqual(path[ind]['y'], path_comp[int(ind/self.resolution)]['y'], 12)
+            self.assertAlmostEqual(path[ind]['z'], path_comp[int(ind/self.resolution)]['z'], 12)
 
     def test_get_spline_length(self):
         # Closed loop path has a length of 8.0 mm since it is
         # a square of side length 2mm
-        self.assertAlmostEqual(self.spline.get_spline_length(), 8.0, 12)
+        self.logger.debug("Expected circumference: %s", 2*np.pi*self.radius)
+        self.assertAlmostEqual(self.spline.get_spline_length(), 2*np.pi*self.radius, 12)
         # The open spline only has a length of 6mm as it is 3 sides of 2mm.
-        self.assertAlmostEqual(self.opened_spline.get_spline_length(), 6.0, 12)
+        self.assertAlmostEqual(self.opened_spline.get_spline_length(), 2*np.pi*self.radius*(1-1/self.num_points), 12)
 
     # TODO: get_point_from_distance needs to be improved, currently fails unit tests
     def test_get_point_from_distance(self):
         test_point, curr_seg, length = self.spline.get_point_from_distance(dist=3)
-        # self.assertAlmostEqual(length, 3.0, 12)
-        # self.assertAlmostEqual(test_point['x'], 1.3148302275301, 12)
-        # self.assertAlmostEqual(test_point['y'], 2.0, 12)
-        # self.assertAlmostEqual(test_point['z'], 0.0, 12)
+        self.assertAlmostEqual(length, 3.0, 12)
+        self.assertAlmostEqual(test_point['x'], 1.3148302275301, 12)
+        self.assertAlmostEqual(test_point['y'], 2.0, 12)
+        self.assertAlmostEqual(test_point['z'], 0.0, 12)
 
     def test_get_x_y_z(self):
-        pass
+        x, y, z = self.spline.get_x_y_z(resolution=2)
+
+        radius = np.sqrt(x**2 + y**2 + z**2)
+        self.assertTrue(np.all(np.abs(radius - self.radius) < 1e-3))
 
     def test_get_points(self):
-        pass
+        points = self.spline.get_points(resolution=2)
+        for point in points:
+            radius = np.sqrt(point**2)
+            self.logger.debug(np.abs(radius - self.radius) < 1e-3)
+            self.logger.debug(np.abs(radius - self.radius))
+            self.assertTrue(np.all(np.abs(radius - self.radius) < 1e-3))
 
 
 class TestPlane(unittest.TestCase):

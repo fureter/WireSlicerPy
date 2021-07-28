@@ -1,3 +1,4 @@
+import argparse
 import logging
 import os
 import unittest
@@ -14,10 +15,7 @@ def run_unitests():
 
 
 def run_unittest_with_coverage():
-    # Setup the project and setup the logger to be used throughout unit tests.
-    wire_slicer.setup(logging.DEBUG)
-
-    cov = coverage.Coverage()
+    cov = coverage.Coverage(source=[os.path.dirname(os.path.dirname(__file__))], omit=['test_*.py', '*unittests.py'])
     cov.start()
 
     run_unitests()
@@ -28,4 +26,14 @@ def run_unittest_with_coverage():
     cov.html_report(directory=os.path.join(os.path.dirname(os.path.dirname(__file__)), 'coverage'))
 
 
-run_unittest_with_coverage()
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-cov', action='store_true', help='Enable coverage report')
+    cov = vars(parser.parse_args())['cov']
+
+    # Setup the project and setup the logger to be used throughout unit tests.
+    wire_slicer.setup(logging.DEBUG)
+    if cov:
+        run_unittest_with_coverage()
+    else:
+        run_unitests()

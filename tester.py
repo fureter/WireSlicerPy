@@ -1,11 +1,14 @@
 import logging
+import os.path
 import sys
 import copy
 
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
 import trimesh.transformations
 
+import util.util_functions
 import wire_slicer
 from slicer.wire_cutter import WireCutter
 from slicer.tool_path import ToolPath
@@ -15,6 +18,7 @@ from geometry.primative import Line
 from geometry.primative import Spline
 from geometry.primative import Plane
 from geometry.primative import GeometricFunctions
+from geometry.primative import WorkPiece
 from geometry.complex import STL
 from geometry.complex import CrossSectionPair
 from geometry.complex import CutPath
@@ -28,6 +32,8 @@ from g_code.generator import TravelType
 def main():
     wire_slicer.setup(logger_level=logging.DEBUG)
 
+    matplotlib.use('SVG')
+
     logger = logging.getLogger(__name__)
 
     # file_path = r'assets/Airfoils/MH70.dat'
@@ -39,7 +45,7 @@ def main():
     # naca0009_data = Dat(filepath=naca0009_file_path)
     # #ag35_data.plot_points_2d()
     #
-    # naca0009_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(naca0009_data.get_data())))
+    # naca0009_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(naca0009_data.get_data()), method=2))
     # #ag35_reord.plot_points_2d()
     #
     # naca0009_path = Spline(naca0009_reord.get_data(), resolution=4).get_path()
@@ -47,35 +53,35 @@ def main():
     # logger.info('Profile Name: %s' % naca0009_data.name)
     #
     # wing = WingSegment(name=naca0009_data.name, logger=logger)
-    # wing.set_span(200)
-    # wing.set_root_chord(180)
-    # wing.set_tip_chord(100)
+    # wing.set_span(220)
+    # wing.set_root_chord(150)
+    # wing.set_tip_chord(80)
     # wing.set_root_airfoil(copy.deepcopy(naca0009_path))
     # wing.set_tip_airfoil(copy.deepcopy(naca0009_path))
     # wing.set_washout(0)
-    # wing.set_sweep(10)
+    # wing.set_sweep(12)
     #
-    # wire_len = 1000
+    wire_len = 1000
     #
-    # wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=100.0, min_speed=0.01,
-    #                          release_height=100.0,
-    #                          start_height=25.0, start_depth=20.0)
-    # wire_cutter.set_kerf(kerf=1.0)
-    #
-    # wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
+    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=100.0, min_speed=0.01,
+                             release_height=100.0,
+                             start_height=25.0, start_depth=20.0)
+    wire_cutter.set_kerf(kerf=1.0)
+
+    wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
     #
     # wing.prep_for_slicing(plot=True)
     # plt.show()
     # wing.center_to_wire_cutter(wire_cutter=wire_cutter)
     # wing.plot_cut_planform()
-    # wing.align_leading_edge_with_wire()
+    # #wing.align_leading_edge_with_wire()
     # wing.plot_cut_planform()
     # plt.legend(['Original Wing', 'Wing aligned to Wire'])
     # plt.axis('equal')
     # plt.show()
     # print('Root Airfoil Point after prepping: %s' % wing.root_airfoil[0])
     #
-    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter)
+    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True)
     # cut_path.plot_section_link_connections()
     # cut_path.plot_cut_path()
     #
@@ -90,7 +96,7 @@ def main():
     #
     # gcode = GCodeGenerator(wire_cutter, travel_type=TravelType.CONSTANT_RATIO)
     # gcode.create_relative_gcode(file_path=r'./assets/GCode/%s_test.txt' % wing.name, tool_path=tool_path)
-    #
+    # #
     # plt.axis('equal')
     # plt.show()
     #
@@ -109,7 +115,7 @@ def main():
 
     test_stl = STL(file_path=r'./assets/STLs/Fuselage_test.stl', units='cm')
     test_stl.mesh.convert_units('mm')
-    #test_stl.plot_stl()
+    # test_stl.plot_stl()
     normal = np.array([0, 1, 0])
     # test_stl.mesh.apply_transform(trimesh.transformations.scale_matrix(factor=2))
     bounding_box = test_stl.mesh.bounds
@@ -118,56 +124,32 @@ def main():
     extent = bounding_box[0] * normal*scale
     slice_plane = Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
     spacing = 25
-    length = int(abs(bounding_box[1][1]-bounding_box[0][1])/spacing)
-    test_stl.slice_into_cross_sections(origin_plane=slice_plane, spacing=spacing, length=length)
-    # plt.figure()
-    # test_stl.plot_trimesh_cross_sections()
-    # plt.figure()
-    # for ind in range(1, len(test_stl.cross_sections)):
-    test_stl.cross_sections[11].add_simple_hole_from_offset(15)
-    test_stl.cross_sections[12].add_simple_hole_from_offset(15)
+    length = int(abs(bounding_box[1][1] - bounding_box[0][1]) / spacing)
+    section_list = test_stl.create_cross_section_pairs(wall_thickness=10.0, origin_plane=slice_plane, spacing=spacing,
+                                                       length=length)
+    subdivided_list = CrossSectionPair.subdivide_list(3, section_list)
+    # subdivided_list = subdivided_list[0:10]
 
-    test_stl.cross_sections[11].plot()
-    test_stl.cross_sections[12].plot()
-    # test_stl.plot_cross_sections()
-
-    # path = test_stl.cross_sections[18].get_path()
-    # GeometricFunctions.plot_path(path, color=1)
-    # #norm_path = PointManip.reorder_2d_cw(GeometricFunctions.normalize_path_points(path, 256), method=1)
-    # norm_path = copy.deepcopy(path)
-    # logger.debug('reordered normalized path: %s', norm_path)
-    # GeometricFunctions.plot_path(norm_path, color=5)
-    # offset_path = GeometricFunctions.clean_intersections(GeometricFunctions.parallel_curve(norm_path, 8, 1, True),
-    #                                                      norm_path, 8)
-    # GeometricFunctions.plot_path(offset_path, color=10)
-    section_pair = CrossSectionPair(section1=test_stl.cross_sections[11],
-                                    section2=test_stl.cross_sections[12])
-
-    # plt.axis('equal')
-    # # test_stl.cross_sections[10].plot()
+    # not all subdivision are coming out clock_wise, subdivision at index 27 is counter clockwise
+    # issue_sdl = subdivided_list[27]
+    # GeometricFunctions.plot_path(issue_sdl.get_path()[0], None)
+    # GeometricFunctions.parallel_curve(issue_sdl.get_path()[0], offset_scale=8, dir=1, plot_debug=True)
+    # para = GeometricFunctions.offset_curve(issue_sdl.get_path()[0], offset_scale=8, dir=1, divisions=1)
+    # GeometricFunctions.plot_path(para, None)
     # plt.show()
-    # section_pair.plot_subdivide_debug(3, 40)
-    new_sections = section_pair.subdivide(3)
-    dir = [[-20, -20, 0], [20, 0, 0], [-20, 20, 0], [20, -20, 0]]
-    i = 0
-    for section in new_sections:
-        path1, path2 = section.get_path()
-        PointManip.Transform.translate(path1, dir[i])
-        PointManip.Transform.translate(path2, dir[i])
-        i += 1
-        GeometricFunctions.plot_path(path1, color=None)
-        GeometricFunctions.plot_path(path2, color=None)
 
-    plt.axis('equal')
+    work_piece = WorkPiece(width=800, height=300, thickness=spacing)
+    output_dir = os.path.join(os.path.dirname(__file__), 'plots')
+    test_path = CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, work_piece, wire_cutter,
+                                                                     output_dir=output_dir)
+    test_path.plot_cut_path()
     plt.show()
-
-    GeometricFunctions.animate_path(new_sections[1].get_path()[0])
-    GeometricFunctions.animate_path(new_sections[1].get_path()[1])
-
-    #
-    # GeometricFunctions.animate_path(norm_path)
-
-
+    # r, c = util.util_functions.get_r_and_c_from_num(len(subdivided_list))
+    # for ind in range(len(subdivided_list)):
+    #     plt.subplot(r, c, ind + 1)
+    #     subdivided_list[ind].plot_subdivide_debug(0, 0)
+    #     plt.axis('equal')
+    # plt.show()
 
 
 main()

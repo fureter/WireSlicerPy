@@ -69,6 +69,12 @@ class GCodeGenerator():
                          (TravelType.to_str(self._travel_type), file_path))
         cmd_list = list()
 
+        if tool_path.speed_list is None:
+            speed_list = [self._wire_cutter.min_speed]
+        else:
+            speed_list = tool_path.speed_list
+        curr_speed = speed_list[0]
+
         if self._wire_cutter.start_up_gcode:
             cmd_list.extend(self._wire_cutter.start_up_gcode)
 
@@ -77,15 +83,21 @@ class GCodeGenerator():
 
         enum = command_library.GCodeCommands.FeedRate
         cmd_list.append(enum.set_mode(self._wire_cutter.feed_rate_mode))
-        cmd_list.append(enum.set_feed_rate(self._wire_cutter.min_speed))
+        cmd_list.append(enum.set_feed_rate(curr_speed))
 
         enum = command_library.GCodeCommands.MovementCommand
 
         movement_list = tool_path.get_relative_movement_list()
 
-        for movement in movement_list:
+        for ind in range(0, len(movement_list)):
+            if len(speed_list) > 1:
+                if curr_speed != speed_list[ind]:
+                    curr_speed = speed_list[ind]
+                    cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
+                    self.logger.debug(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
             cmd_list.append(enum.g1_linear_move(
-                self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
+                self._wire_cutter.axis_def.format(movement_list[ind][0], movement_list[ind][1], movement_list[ind][2],
+                                                  movement_list[ind][3])))
 
         self._save_gcode_file(file_path, cmd_list)
 

@@ -1,14 +1,20 @@
 import abc
 import copy
-from abc import ABC
-import sys
-import os
 import csv
 import logging
+import os
+import sys
+from abc import ABC
+from collections import namedtuple
 
-import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
+import numpy as np
+
+import geometry.spatial_manipulation as sm
+
+WorkPiece = namedtuple('WorkPiece', field_names=['width', 'height', 'thickness'])
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -244,18 +250,26 @@ class Line(Section):
             p_l1 = self.get_path()
             p_l2 = line.get_path()
 
-            if (p_l1[0]['x'] < x < p_l1[1]['x'] or p_l1[1]['x'] < x < p_l1[0]['x']) and\
-                    (p_l2[0]['x'] < x < p_l2[1]['x'] or p_l2[1]['x'] < x < p_l2[0]['x']):
-                if (p_l1[0]['y'] < y < p_l1[1]['y'] or p_l1[1]['y'] < y < p_l1[0]['y']) and\
-                        (p_l2[0]['y'] < y < p_l2[1]['y'] or p_l2[1]['y'] < y < p_l2[0]['y']):
-                    # In most cases where we use intersection, everything will be in the z-plane, therefore we check <=
-                    # for the z-axis
-                    if (p_l1[0]['z'] <= z <= p_l1[1]['z'] or p_l1[1]['z'] <= z <= p_l1[0]['z']) and\
-                            (p_l2[0]['z'] <= z <= p_l2[1]['z'] or p_l2[1]['z'] <= z <= p_l2[0]['z']):
-                        ret_val = True
-                    #logger.debug('Val 1: %s, Val 2: %s', val[0], val[1])
-                    #logger.debug('x_int: %s, y_int: %s, z_int: %s', x, y, z)
-                    #logger.debug('x_l1: %s, y_l1: %s, z_l1: %s', self._x0, self._y0, self._z0)
+            min_x_l1 = min([p_l1[0]['x'], p_l1[1]['x']])
+            max_x_l1 = max([p_l1[0]['x'], p_l1[1]['x']])
+            min_x_l2 = min([p_l2[0]['x'], p_l2[1]['x']])
+            max_x_l2 = max([p_l2[0]['x'], p_l2[1]['x']])
+
+            min_y_l1 = min([p_l1[0]['y'], p_l1[1]['y']])
+            max_y_l1 = max([p_l1[0]['y'], p_l1[1]['y']])
+            min_y_l2 = min([p_l2[0]['y'], p_l2[1]['y']])
+            max_y_l2 = max([p_l2[0]['y'], p_l2[1]['y']])
+
+            if ((min_x_l1 <= x <= max_x_l1) and (min_x_l2 <= x <= max_x_l2) and
+                    (min_y_l1 <= y <= max_y_l1) and (min_y_l2 <= y <= max_y_l2)):
+                # In most cases where we use intersection, everything will be in the z-plane, therefore we check <=
+                # for the z-axis
+                if (p_l1[0]['z'] <= z <= p_l1[1]['z'] or p_l1[1]['z'] <= z <= p_l1[0]['z']) and\
+                        (p_l2[0]['z'] <= z <= p_l2[1]['z'] or p_l2[1]['z'] <= z <= p_l2[0]['z']):
+                    ret_val = True
+                #logger.debug('Val 1: %s, Val 2: %s', val[0], val[1])
+                #logger.debug('x_int: %s, y_int: %s, z_int: %s', x, y, z)
+                #logger.debug('x_l1: %s, y_l1: %s, z_l1: %s', self._x0, self._y0, self._z0)
 
         return ret_val, Point(x, y, z)
 
@@ -608,6 +622,84 @@ class Spline(Section):
 
 
 class GeometricFunctions():
+    @staticmethod
+    def plot_potential_field(x_mesh, y_mesh, potential_field, output_dir, index):
+        plt.figure(figsize=(16, 9), dpi=160)
+        plt.pcolormesh(x_mesh, y_mesh, np.log10(np.sqrt(potential_field[:, :, 0]**2 + potential_field[:, :, 1]**2)),
+                       shading='auto')
+        bar = plt.colorbar()
+        bar.label = 'Potential Magnitude'
+        plt.quiver(x_mesh, y_mesh, potential_field[:, :, 0], potential_field[:, :, 1], width=0.001)
+        plt.title('Potential Field with Force Vectors')
+        plt.savefig(os.path.join(output_dir, 'potential_field_w_quiver_%s.png' % index))
+        plt.figure(figsize=(16, 9), dpi=160)
+        plt.pcolormesh(x_mesh, y_mesh, np.log10(np.sqrt(potential_field[:, :, 0]**2 + potential_field[:, :, 1]**2)),
+                       shading='auto')
+        plt.title('Potential Field')
+        bar = plt.colorbar()
+        bar.label = 'Potential Magnitude'
+        plt.savefig(os.path.join(output_dir, 'potential_field_%s.png' % index))
+
+    @staticmethod
+    def plot_cross_sections_on_workpiece(position_dict, work_piece, output_dir, index=0):
+        """
+
+        :param position_dict:
+        :param WorkPiece work_piece:
+        :return:
+        """
+        plt.figure(figsize=(16, 9), dpi=160)
+        plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0], 'g')
+
+        for ind in range(0, len(position_dict.keys())):
+            path_1 = copy.deepcopy(position_dict[ind]['section'].section1.get_path())
+            path_2 = copy.deepcopy(position_dict[ind]['section'].section2.get_path())
+            collider_path = copy.deepcopy(position_dict[ind]['collider'].get_path())
+
+            GeometricFunctions.move_cross_section_from_position_dict(
+                path_1=path_1,
+                path_2=path_2,
+                dict_entry=position_dict[ind])
+
+            GeometricFunctions.plot_path(path_1, 'r', scatter=False)
+            GeometricFunctions.plot_path(path_2, 'b', scatter=False)
+            GeometricFunctions.plot_path(collider_path, 'm', scatter=False)
+            txt = plt.text(position_dict[ind]['x_offset'], position_dict[ind]['y_offset'], s='C%s' % (ind + 1),
+                           fontsize='small')
+            txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
+        plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_%s.png' % index))
+
+    @staticmethod
+    def move_cross_section_from_position_dict(path_1, path_2, dict_entry):
+        GeometricFunctions.center_path(path_1)
+        GeometricFunctions.center_path(path_2)
+
+        sm.PointManip.Transform.rotate(path_1, [0, 0, np.deg2rad(dict_entry['rot'])])
+        sm.PointManip.Transform.rotate(path_2, [0, 0, np.deg2rad(dict_entry['rot'])])
+
+        sm.PointManip.Transform.translate(path_1, [dict_entry['x_offset'], dict_entry['y_offset'], 0])
+        sm.PointManip.Transform.translate(path_2, [dict_entry['x_offset'], dict_entry['y_offset'], 0])
+
+    @staticmethod
+    def get_bounding_box_from_path(path):
+        min_x_p, max_x_p = GeometricFunctions.get_point_from_min_coord(path, 'x')['x'], \
+                           GeometricFunctions.get_point_from_max_coord(path, 'x')[1]
+
+        min_y_p, max_y_p = GeometricFunctions.get_point_from_min_coord(path, 'y')['y'], \
+                           GeometricFunctions.get_point_from_max_coord(path, 'y')[1]
+
+        min_z_p, max_z_p = GeometricFunctions.get_point_from_min_coord(path, 'z')['z'], \
+                           GeometricFunctions.get_point_from_max_coord(path, 'z')[1]
+
+        return [Point(min_x_p, min_y_p, min_z_p), Point(max_x_p, max_y_p, max_z_p)]
+
+    @staticmethod
+    def center_path(path):
+        center = Point(0, 0, 0)
+        for point in path:
+            center += point
+        center /= len(path)
+        sm.PointManip.Transform.translate(path, [-center['x'], -center['y'], -center['z']])
 
     @staticmethod
     def get_point_from_max_coord(path, dim):
@@ -986,7 +1078,7 @@ class GeometricFunctions():
         return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
 
     @staticmethod
-    def plot_path(path, color, scatter=True):
+    def plot_path(path, color, scatter=True, scatter_color=None):
         len_path = len(path)
 
         x = np.zeros(len_path)
@@ -1001,7 +1093,10 @@ class GeometricFunctions():
         else:
             plt.plot(x, y)
         if scatter:
-            plt.scatter(x, y)
+            if scatter_color is not None:
+                plt.scatter(x, y, c=scatter_color)
+            else:
+                plt.scatter(x, y)
 
     @staticmethod
     def animate_path(path):

@@ -28,7 +28,7 @@ class ToolPath():
 
     """
 
-    def __init__(self, path1, path2, logger=None):
+    def __init__(self, path1, path2, speed_list=None, logger=None):
         """Constructor for tool path, should not be directly called, use create_* functions to generate tool paths.
 
         :param path1: Gantry 1 path.
@@ -38,6 +38,8 @@ class ToolPath():
         """
         self._path1 = path1
         self._path2 = path2
+
+        self.speed_list = speed_list
 
         if logger is None:
             logger = logging.getLogger()
@@ -186,6 +188,7 @@ class ToolPath():
         path2w = list()
         path1 = list()
         path2 = list()
+        speed_list = list()
 
         if not cut_path.is_valid_cut_path():
             raise ValueError('Error: Provided CutPath is not a valid CutPath')
@@ -202,6 +205,10 @@ class ToolPath():
                 logger.debug('SectionLink1: %s | SectionLink2: %s' % (path_1_tmp, path_2_tmp))
                 path1w.extend(path_1_tmp)
                 path2w.extend(path_2_tmp)
+                if cut_lst_1.fast_cut:
+                    speed_list.extend([wire_cutter.max_speed]*len(path_1_tmp))
+                else:
+                    speed_list.extend([wire_cutter.min_speed]*len(path_1_tmp))
             else:
                 num_points = 256
                 tmp_path_1 = prim.GeometricFunctions.normalize_path_points(cut_lst_1.get_path(), num_points=num_points)
@@ -211,6 +218,7 @@ class ToolPath():
                 logger.debug('Normalized Path1 Len: %s | Normalized Path2 Len; %s' % (len(tmp_path_1), len(tmp_path_2)))
                 path1w.extend(tmp_path_1)
                 path2w.extend(tmp_path_2)
+                speed_list.extend([wire_cutter.min_speed]*num_points)
 
         prim.GeometricFunctions.plot_path(path1w, 'k')
         prim.GeometricFunctions.plot_path(path2w, 'r')
@@ -237,7 +245,7 @@ class ToolPath():
         prim.GeometricFunctions.path_to_csv(path1, file_path=os.path.join(file_path, 'path1.csv'))
         prim.GeometricFunctions.path_to_csv(path2, file_path=os.path.join(file_path, 'path2.csv'))
 
-        return ToolPath(path1, path2)
+        return ToolPath(path1, path2, speed_list=speed_list)
 
     def _shortest_distance_in_tool_path(self):
         min_dist = 99999999
@@ -337,12 +345,13 @@ class ToolPath():
 
         ani = animation.FuncAnimation(fig, update, frames=list(range(0, len(self._path1))),
                             init_func=init, blit=True)
-        try:
-            plt.rcParams['animation.ffmpeg_path'] = r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe'
-            writer_class = animation.writers['ffmpeg']
-            writer = writer_class(fps=15, metadata=dict(artist='FurEter'), bitrate=1800)
-            ani.save(file_path % title, writer=writer)
-        except RuntimeError:
-            logger.exception('Error animation writter could not be found at file path: %s',
-                             r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe')
+        if file_path is not None:
+            try:
+                plt.rcParams['animation.ffmpeg_path'] = r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe'
+                writer_class = animation.writers['ffmpeg']
+                writer = writer_class(fps=15, metadata=dict(artist='FurEter'), bitrate=1800)
+                ani.save(file_path % title, writer=writer)
+            except RuntimeError:
+                logger.exception('Error animation writter could not be found at file path: %s',
+                                 r'C:\Program Files\ffmpeg-4.4\bin\ffmpeg.exe')
         plt.show()
