@@ -213,6 +213,7 @@ class ToolPath():
                 num_points = 256
                 tmp_path_1 = prim.GeometricFunctions.normalize_path_points(cut_lst_1.get_path(), num_points=num_points)
                 tmp_path_2 = prim.GeometricFunctions.normalize_path_points(cut_lst_2.get_path(), num_points=num_points)
+                num_points = min(len(tmp_path_1), len(tmp_path_2))
                 tmp_path_1 = tmp_path_1[0:num_points]
                 tmp_path_2 = tmp_path_2[0:num_points]
                 logger.debug('Normalized Path1 Len: %s | Normalized Path2 Len; %s' % (len(tmp_path_1), len(tmp_path_2)))
@@ -225,8 +226,6 @@ class ToolPath():
         plt.show()
 
         for idx in range(0, len(path1w)):
-            if int(path2w[idx]['y']) == 23:
-                logger.debug('break_point')
             line = prim.Line.line_from_points(path1w[idx], path2w[idx])
             logger.debug('*'*80)
             logger.debug('Point1: %s | Point2: %s' % (path1w[idx], path2w[idx]))

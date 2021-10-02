@@ -1,7 +1,7 @@
 def get_r_and_c_from_num(num):
 
     ret_val = None
-    for i in reversed(range(1, 16)):
+    for i in reversed(range(1, 20)):
         if num % i == 0:
             ret_val = (i, num / i)
             if ret_val is not None:

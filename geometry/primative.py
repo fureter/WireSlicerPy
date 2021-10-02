@@ -97,7 +97,12 @@ class Point():
         ret_val = None
         if isinstance(other, Point):
             ret_val = self._coord[0]*other['x'] + self._coord[1]*other['y'] + self._coord[2]*other['z']
+        else:
+            ret_val = Point(self._coord[0] * other, self._coord[1] * other,  self._coord[2] * other)
         return ret_val
+
+    def as_ndarray(self):
+        return np.array([self._coord[0], self._coord[1], self._coord[2]])
 
 
 class Section(ABC):
@@ -111,7 +116,7 @@ class SectionLink(Section):
     """
     Used to define connections between CrossSections
     """
-    def __init__(self, start_point, end_point, fast_cut):
+    def __init__(self, start_point, end_point, fast_cut=False):
         self.start_point = start_point
         self.end_point = end_point
         self.fast_cut = fast_cut
@@ -241,7 +246,7 @@ class Line(Section):
                 b = np.array([[-self._x0 + line._x0], [-self._y0 + line._y0]])
                 val = np.linalg.solve(a=a, b=b)
             except np.linalg.LinAlgError:
-                raise np.linalg.LinAlgError('Tried all possible coordinate combinations')
+                return False, None
 
             x = val[0] * self._a + self._x0
             y = val[0] * self._b + self._y0
@@ -271,7 +276,7 @@ class Line(Section):
                 #logger.debug('x_int: %s, y_int: %s, z_int: %s', x, y, z)
                 #logger.debug('x_l1: %s, y_l1: %s, z_l1: %s', self._x0, self._y0, self._z0)
 
-        return ret_val, Point(x, y, z)
+        return ret_val, copy.deepcopy(Point(x, y, z))
 
     def signed_distance_to_point_xy(self, point):
         """
@@ -292,6 +297,9 @@ class Line(Section):
         if self._p2[dim] <= coord <= self._p1[dim]:
             ret_val = True
         return ret_val
+
+    def normal(self):
+        return np.array([-self._b, self._a, 0]) / np.sqrt(self._b**2 + self._a**2)
 
     def parallel(self, line):
         counter = 0
@@ -641,44 +649,72 @@ class GeometricFunctions():
         plt.savefig(os.path.join(output_dir, 'potential_field_%s.png' % index))
 
     @staticmethod
-    def plot_cross_sections_on_workpiece(position_dict, work_piece, output_dir, index=0):
+    def plot_cross_sections_on_workpiece(state_dict, work_piece, output_dir, index=0, new_fig=True):
         """
 
-        :param position_dict:
+        :param state_dict:
         :param WorkPiece work_piece:
         :return:
         """
-        plt.figure(figsize=(16, 9), dpi=160)
+        if new_fig:
+            plt.figure(figsize=(16, 9), dpi=160)
         plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0], 'g')
 
-        for ind in range(0, len(position_dict.keys())):
-            path_1 = copy.deepcopy(position_dict[ind]['section'].section1.get_path())
-            path_2 = copy.deepcopy(position_dict[ind]['section'].section2.get_path())
-            collider_path = copy.deepcopy(position_dict[ind]['collider'].get_path())
+        x = list()
+        y = list()
+        u = list()
+        v = list()
 
-            GeometricFunctions.move_cross_section_from_position_dict(
+        for ind in range(0, len(state_dict)):
+            path_1 = copy.deepcopy(state_dict[ind]['section'].section1.get_path())
+            path_2 = copy.deepcopy(state_dict[ind]['section'].section2.get_path())
+            collider_path = copy.deepcopy(state_dict[ind]['collider'].get_path())
+
+            GeometricFunctions.move_cross_section_from_state_dict(
                 path_1=path_1,
                 path_2=path_2,
-                dict_entry=position_dict[ind])
+                dict_entry=state_dict[ind])
+
+            bb1 = GeometricFunctions.get_bounding_box_from_path(collider_path)
+
+            plt.plot([bb1[0][0], bb1[0][0], bb1[1][0], bb1[1][0], bb1[0][0]],
+                     [bb1[0][1], bb1[1][1], bb1[1][1], bb1[0][1], bb1[0][1]], 'k')
 
             GeometricFunctions.plot_path(path_1, 'r', scatter=False)
             GeometricFunctions.plot_path(path_2, 'b', scatter=False)
             GeometricFunctions.plot_path(collider_path, 'm', scatter=False)
-            txt = plt.text(position_dict[ind]['x_offset'], position_dict[ind]['y_offset'], s='C%s' % (ind + 1),
+            x.append(state_dict[ind]['x_pos'])
+            y.append(state_dict[ind]['y_pos'])
+            # u.append(state_dict[ind]['u'])
+            # v.append(state_dict[ind]['v'])
+
+            txt = plt.text(state_dict[ind]['x_pos'], state_dict[ind]['y_pos'], s='C%s' % (ind + 1),
                            fontsize='small')
             txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
+
+        # plt.quiver(x, y, u, v)
         plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_%s.png' % index))
 
     @staticmethod
-    def move_cross_section_from_position_dict(path_1, path_2, dict_entry):
+    def bounding_boxes_intersect(bb1, bb2):
+        ret_val = False
+        if (((bb1[0][0] <= bb2[0][0] <= bb1[1][0] or bb1[0][0] <= bb2[1][0] <= bb1[1][0]) and
+                (bb1[0][1] <= bb2[0][1] <= bb1[1][1] or bb1[0][1] <= bb2[1][1] <= bb1[1][1]))
+                or ((bb2[0][0] <= bb1[0][0] <= bb2[1][0] or bb2[0][0] <= bb1[1][0] <= bb2[1][0]) and
+                    (bb2[0][1] <= bb1[0][1] <= bb2[1][1] or bb2[0][1] <= bb1[1][1] <= bb2[1][1]))):
+            ret_val = True
+        return ret_val
+
+    @staticmethod
+    def move_cross_section_from_state_dict(path_1, path_2, dict_entry):
         GeometricFunctions.center_path(path_1)
         GeometricFunctions.center_path(path_2)
 
         sm.PointManip.Transform.rotate(path_1, [0, 0, np.deg2rad(dict_entry['rot'])])
         sm.PointManip.Transform.rotate(path_2, [0, 0, np.deg2rad(dict_entry['rot'])])
 
-        sm.PointManip.Transform.translate(path_1, [dict_entry['x_offset'], dict_entry['y_offset'], 0])
-        sm.PointManip.Transform.translate(path_2, [dict_entry['x_offset'], dict_entry['y_offset'], 0])
+        sm.PointManip.Transform.translate(path_1, [dict_entry['x_pos'], dict_entry['y_pos'], 0])
+        sm.PointManip.Transform.translate(path_2, [dict_entry['x_pos'], dict_entry['y_pos'], 0])
 
     @staticmethod
     def get_bounding_box_from_path(path):
@@ -695,11 +731,16 @@ class GeometricFunctions():
 
     @staticmethod
     def center_path(path):
+        center = GeometricFunctions.get_center_of_path(path)
+        sm.PointManip.Transform.translate(path, [-center['x'], -center['y'], -center['z']])
+
+    @staticmethod
+    def get_center_of_path(path):
         center = Point(0, 0, 0)
         for point in path:
             center += point
         center /= len(path)
-        sm.PointManip.Transform.translate(path, [-center['x'], -center['y'], -center['z']])
+        return center
 
     @staticmethod
     def get_point_from_max_coord(path, dim):
@@ -859,6 +900,23 @@ class GeometricFunctions():
         return path
 
     @staticmethod
+    def remove_duplicate_memory_from_path(path):
+        """
+
+        :param list[Point] path:
+        :return:
+        :rtype: list[Point]
+        """
+        addr_list = list()
+        tmp_path = list()
+        for point in path:
+            addr = hex(id(point))
+            if addr not in addr_list:
+                addr_list.append(addr)
+                tmp_path.append(point)
+        return tmp_path
+
+    @staticmethod
     def get_max_thickness(path, dim, ref_dim):
         """
 
@@ -935,10 +993,9 @@ class GeometricFunctions():
                 })
 
     @staticmethod
-    def offset_curve(path, offset_scale, dir, divisions):
+    def offset_curve(path, offset_scale, dir, divisions, add_leading_edge=True):
         logger = logging.getLogger(__name__)
         origininal_leading_edge = copy.deepcopy(path[0])
-        restart = False
         original_curve = copy.deepcopy(path)
         for ind in range(0, divisions):
             path = GeometricFunctions.parallel_curve(path, offset_scale / divisions, dir)
@@ -948,20 +1005,21 @@ class GeometricFunctions():
         intersections = GeometricFunctions.get_all_intersection_points(path)
         path = GeometricFunctions.clean_intersections(path, original_curve, offset_scale)
 
-        if dir == 0:
-            path.insert(0, origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
-            path.append(origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
-        else:
-            closest_point = None
-            min_dist = sys.maxsize
-            for intersection in intersections:
-                dist = np.sqrt((path[0] - intersection)**2)
-                if dist < min_dist:
-                    closest_point = intersection
-                    min_dist = dist
-            if closest_point is not None:
-                path.insert(0, copy.copy(closest_point))
-                path.append(copy.copy(closest_point))
+        if add_leading_edge:
+            if dir == 0:
+                path.insert(0, origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+                path.append(origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+            else:
+                closest_point = None
+                min_dist = sys.maxsize
+                for intersection in intersections:
+                    dist = np.sqrt((path[0] - intersection)**2)
+                    if dist < min_dist:
+                        closest_point = intersection
+                        min_dist = dist
+                if closest_point is not None:
+                    path.insert(0, copy.copy(closest_point))
+                    path.append(copy.copy(closest_point))
 
         return path
 
@@ -984,9 +1042,7 @@ class GeometricFunctions():
                      [path[0]['y'], path[0]['y'] + norm2['y'] * offset_scale],
                      'y-')
         vec = path[0] - center
-        sign = np.sign([vec * norm1, vec * norm2][dir])
         norm = norm1 if dir == 0 else norm2
-        #offset_path.append(copy.deepcopy(path[0]) + Point(-offset_scale, 0, 0))
         offset_path.append(path[0] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
 
         for ind in range(1, len(path)-1):
@@ -998,9 +1054,7 @@ class GeometricFunctions():
                 plt.plot([path[ind]['x'], path[ind]['x'] + norm2['x'] * offset_scale],
                          [path[ind]['y'], path[ind]['y'] + norm2['y'] * offset_scale],
                          'y-')
-            vec = path[ind] - center
             norm = norm1 if dir == 0 else norm2
-            #logger.debug('Vec: %s, norm1: %s, Sign: %s', vec, norm1, np.sign(norm1 * vec))
             offset_path.append(path[ind] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
 
         norm1, norm2 = GeometricFunctions.normal_vector(path[-2], path[-1], path[0])
@@ -1066,14 +1120,20 @@ class GeometricFunctions():
 
         :param Point prev_point:
         :param Point curr_point:
-        :param Point next_point:
+        :param next_point:
+        :type next_point: Point or None
         :return:
         """
         diff_back = curr_point - prev_point
-        diff_forw = next_point - curr_point
+        if next_point is not None:
+            diff_forw = next_point - curr_point
 
-        norm_1 = (Point(-diff_back['y'], diff_back['x'], 0) + Point(-diff_forw['y'], diff_forw['x'], 0))/2.0
-        norm_2 = (Point(diff_back['y'], -diff_back['x'], 0) + Point(diff_forw['y'], -diff_forw['x'], 0))/2.0
+            norm_1 = (Point(-diff_back['y'], diff_back['x'], 0) + Point(-diff_forw['y'], diff_forw['x'], 0))/2.0
+            norm_2 = (Point(diff_back['y'], -diff_back['x'], 0) + Point(diff_forw['y'], -diff_forw['x'], 0))/2.0
+        else:
+
+            norm_1 = (Point(-diff_back['y'], diff_back['x'], 0))
+            norm_2 = (Point(diff_back['y'], -diff_back['x'], 0))
 
         return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
 

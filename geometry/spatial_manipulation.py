@@ -6,7 +6,6 @@ import timeit
 import matplotlib.pyplot as plt
 import numpy as np
 
-import geometry.complex as comp
 import geometry.primative as prim
 
 
@@ -18,6 +17,7 @@ class PointManip():
             if isinstance(vector, prim.Point):
                 vector = [vector['x'], vector['y'], vector['z']]
             for point in points:
+                # print('Point at memory Addr: %s' % hex(id(point)))
                 point['x'] += vector[0]
                 point['y'] += vector[1]
                 point['z'] += vector[2]
@@ -72,14 +72,67 @@ class PointManip():
                 point['z'] = res[2]
 
     @staticmethod
-    def reorder_2d_cw_subdivide(outer_points, inner_points):
+    def reorder_2d_cw_subdivide(outer_points, inner_points, center):
         """
         Sorting method used specifically for subdivisions.
-        :param outer_points:
-        :param outer_points:
-        :return:
+        :param list[prim.Point] outer_points:
+        :param list[prim.Point] inner_points:
+        :return: List of points sorted to be clock wise.
         """
-        pass
+        outer_center = prim.Point(0, 0, 0)
+        for point in outer_points:
+            outer_center += point
+        outer_center /= len(outer_points)
+        # TODO: Not stable, the points are already sorted as a whole section, we shouldn't need to reorder after
+        #  subdividing.
+        # sorted_outer = PointManip._polar_sort(outer_points, (center * 0.8 - outer_center * 0.2))
+        # sorted_outer = PointManip._tsp_touchup(sorted_outer, 20)
+        sorted_outer = outer_points
+        sorted_outer = PointManip._reorder_from_gap_cw(sorted_outer)
+        # plt.scatter([outer_center['x']], [outer_center['y']])
+        # prim.GeometricFunctions.plot_path(sorted_outer, color='g', scatter=False)
+        if inner_points:
+            inner_center = prim.Point(0, 0, 0)
+            for point in inner_points:
+                inner_center += point
+            inner_center /= len(inner_points)
+            # sorted_inner = PointManip._polar_sort(inner_points, (center*0.8-inner_center*0.2))
+            # sorted_inner = PointManip._tsp_touchup(sorted_inner, 20)
+            sorted_inner = inner_points
+            sorted_inner = PointManip._reorder_from_gap_cw(sorted_inner)
+            # plt.scatter([inner_center['x']], [inner_center['y']])
+            # prim.GeometricFunctions.plot_path(sorted_inner, color='r', scatter=False)
+        # plt.legend(['Center_O', 'Outer', 'Center_I', 'Inner'])
+        # plt.show()
+
+        if inner_points:
+            for point in reversed(sorted_inner):
+                sorted_outer.append(point)
+
+        return sorted_outer
+
+    @staticmethod
+    def _reorder_from_gap_cw(path):
+        """
+        Takes a sorted path, and re-indexes it so that the start of the path is at the end of the largest gap in the
+        path. Useful primarily for subdivided paths.
+
+        :param list[prim.Point] path: CW Sorted list of points to be re-indexed.
+        :return: Path re-indexed to not have a large gap in the middle.
+        :rtype: list[prim.Point]
+        """
+
+        max_dist = np.sqrt((path[-1] - path[0])**2)
+        max_dist_index = 0
+
+        for indx in range(0, len(path)-1):
+            dist = np.sqrt((path[indx+1] - path[indx])**2)
+            if dist > max_dist:
+                max_dist = dist
+                max_dist_index = indx+1
+
+        shifted_list = path[max_dist_index:] + path[0:max_dist_index]
+        return shifted_list
 
     @staticmethod
     def reorder_2d_cw(points, method=0):
@@ -109,336 +162,18 @@ class PointManip():
         elif method == 2:
             sorted_points = PointManip._loop_dist_sort(points)
             name = 'loop_dist_sort'
+        elif method == 3:
+            sorted_points = PointManip._polar_sort(points, center)
+            sorted_points = PointManip._tsp_touchup(sorted_points, bandwidth=20)
+            name = 'polar_sort with TSP'
+        elif method == 4:
+            sorted_points = PointManip._tsp_touchup(points, bandwidth=10, ang_thresh=15)
+            name = 'TSP Touch-up'
         else:
             raise NotImplementedError
         print('Took %ss to complete %s' % (timeit.default_timer() - start_polar, name))
 
         return np.array(sorted_points)
-
-    @staticmethod
-    def align_cross_sections_on_workpiece(cross_section_list, work_piece, output_dir, wire_cutter,
-                                          distance_between_sections):
-        """
-
-        :param list[comp.CrossSectionPair] cross_section_list:
-        :param prim.WorkPiece work_piece:
-        :param WireCutter wire_cutter:
-        :return:
-        """
-        logger = logging.getLogger(__name__)
-        position_dict = dict()
-        ind = 0
-        for section in cross_section_list:
-            position_dict[ind] = {'section': section, 'rot': 0, 'x_offset': 0, 'y_offset': 0,
-                                  'collider': PointManip.create_section_collider(section, distance_between_sections)}
-            ind += 1
-        logger.info("Setting initial positions for Cross Sections on the work_piece")
-        PointManip.set_initial_cross_section_offsets(position_dict, work_piece)
-        prim.GeometricFunctions.plot_cross_sections_on_workpiece(position_dict, work_piece, output_dir, index='initial')
-        plt.show()
-
-        grid_resolution = 0.20
-        x_grid = np.array(range(0, int(work_piece.width * grid_resolution + grid_resolution)),
-                          dtype=np.float) / grid_resolution
-        y_grid = np.array(range(0, int(work_piece.height * grid_resolution + grid_resolution)),
-                          dtype=np.float) / grid_resolution
-        logger.info("Creating the meshgrid to calculate the potential field over (dim [%s, %s])", x_grid.shape[0],
-                    y_grid.shape[0])
-        x_mesh, y_mesh = np.meshgrid(x_grid, y_grid)
-        x_mesh = x_mesh.T
-        y_mesh = y_mesh.T
-
-        index = 0
-        dt = 0.003
-        iterations = 300
-        while index < iterations:
-            start = timeit.default_timer()
-            potential_field = np.zeros([x_mesh.shape[0], x_mesh.shape[1], 2])
-            logger.info("Calculating the potential field.")
-            PointManip.calculate_potential_field(x_mesh, y_mesh, position_dict, 1.0, 25, potential_field,
-                                                 work_piece=work_piece)
-            logger.info("Plotting the potential field.")
-            prim.GeometricFunctions.plot_potential_field(x_mesh, y_mesh, potential_field, output_dir, index)
-            PointManip.move_position_dict_from_potential_field(position_dict, potential_field, dt, x_grid, y_grid,
-                                                               work_piece)
-            prim.GeometricFunctions.plot_cross_sections_on_workpiece(position_dict, work_piece, output_dir, index=index)
-
-            index += 1
-            logger.info('Finished iteration %s, took %ss', index, timeit.default_timer() - start)
-            plt.close('all')
-
-        logger.info("Performing the final translation of all CrossSectionPairs.")
-        for ind in position_dict:
-            prim.GeometricFunctions.move_cross_section_from_position_dict(
-                path_1=position_dict[ind]['section'].section1.get_path(),
-                path_2=position_dict[ind]['section'].section2.get_path(),
-                dict_entry=position_dict[ind])
-
-        logger.info("Plotting the CrossSectionPairs on the work_piece for visualization.")
-        prim.GeometricFunctions.plot_cross_sections_on_workpiece(position_dict, work_piece, output_dir, index='final')
-
-
-    @staticmethod
-    def move_position_dict_from_potential_field(position_dict, potential_field, dt, x_grid, y_grid, work_piece):
-        """
-
-        :param dict[int, dict] position_dict:
-        :param np.ndarray potential_field:
-        :param float dt:
-        :param x_grid:
-        :param y_grid:
-        :param prim.WorkPiece work_piece:
-        :return:
-        """
-        logger = logging.getLogger(__name__)
-        for ind in position_dict:
-            center = prim.Point(0, 0, 0)
-            path = position_dict[ind]['collider'].get_path()
-            x_force = 0
-            y_force = 0
-            torque = 0
-            for point in path:
-                center += point
-            center /= len(path)
-
-            for point in path:
-                x = point['x']
-                y = point['y']
-                x_coord = np.argmin(np.abs(x_grid-x))
-                y_coord = np.argmin(np.abs(y_grid-y))
-
-                force = potential_field[x_coord, y_coord, :]
-                x_force += force[0]
-                y_force += force[1]
-                lever_arm = point - center
-                torque += lever_arm['x'] * force[1] + lever_arm['y'] * force[0]
-
-            # If the segment is outside of the work_piece, add additional force to bring it back in.
-            if position_dict[ind]['x_offset'] < 0:
-                x_force += 20
-            elif position_dict[ind]['x_offset'] > work_piece.width:
-                x_force -= 20
-            if position_dict[ind]['y_offset'] < 0:
-                y_force += 20
-            elif position_dict[ind]['y_offset'] > work_piece.height:
-                y_force -= 20
-
-            delta_x = 100*(x_force * dt**2)/2  # Mass is assumed 1/100
-            delta_y = 100*(y_force * dt**2)/2  # Mass is assumed 1/100
-            delta_rot = 0.2*(torque * dt**2)/2  # Moment of Inertia is assumed 4
-
-            #logger.debug('delta_x : %s, delta_y: %s, delta_rot: %s', delta_x, delta_y, np.rad2deg(delta_rot))
-
-            position_dict[ind]['collider'].translate([delta_x, delta_y, 0])
-            position_dict[ind]['x_offset'] += delta_x
-            position_dict[ind]['y_offset'] += delta_y
-
-            PointManip.Transform.rotate(path, [0, 0, delta_rot],
-                                        origin=[position_dict[ind]['x_offset'], position_dict[ind]['y_offset'], 0])
-
-            position_dict[ind]['rot'] += np.rad2deg(delta_rot)
-
-    @staticmethod
-    def calculate_potential_field(x_mesh, y_mesh, position_dict, alpha, beta, field, work_piece):
-        logger = logging.getLogger(__name__)
-        for ind_x in range(0, x_mesh.shape[0]):
-            start = timeit.default_timer()
-            for ind_y in range(0, y_mesh.shape[1]):
-                x = x_mesh[ind_x, ind_y]
-                y = y_mesh[ind_x, ind_y]
-
-                closest_sections = PointManip.get_n_closest_sections(x=x, y=y, position_dict=position_dict, n=3)
-                for section in closest_sections:
-                    field[ind_x, ind_y, :] += alpha * PointManip.calculate_force_for_potential_field(x, y, section,
-                                                                                                     work_piece=work_piece,
-                                                                                                     beta=beta)
-            # logger.info("Finished calculating the %s row for potential fields. Took: %ss", (ind_x + 1),
-            #             timeit.default_timer() - start)
-
-    @staticmethod
-    def calculate_force_for_potential_field(x, y, section, work_piece, beta):
-        """
-
-        :param x:
-        :param y:
-        :param comp.CrossSection section:
-        :return:
-        """
-        force = np.zeros(2)
-        path = section.get_path()
-        curr_point = prim.Point(x, y, 0)
-        closest_point = path[0]
-        closest_dist = np.sqrt((prim.Point(closest_point['x'], closest_point['y'], 0) - curr_point)**2)
-        for point in section.get_path():
-            dist = np.sqrt((prim.Point(point['x'], point['y'], 0) - curr_point)**2)
-            if dist < closest_dist:
-                closest_dist = dist
-                closest_point = point
-
-        resultant_vector = closest_point - curr_point
-        dist = np.sqrt(resultant_vector**2)
-        if section.point_in_section(prim.Point(x, y, 0)):
-            scale = abs((2*dist)**1.5)/10.0 * beta  # forcing value to get points outside of other collider box
-            force[0] = scale*resultant_vector[0]
-            force[1] = scale*resultant_vector[1]
-        else:
-            scale = np.log10(abs(dist/10.0)**1.5)/10.0 * beta
-            force[0] = scale*resultant_vector[0]
-            force[1] = scale*resultant_vector[1]
-
-        # Add constant external force to move cross sections towards the upper left
-        force[0] += -8*(x/100)
-        force[1] += 4*((work_piece.height - y)/100)
-
-        PointManip.add_wall_force(force, x=x, y=y, work_piece=work_piece, beta=6, wall_dist=25.0)
-
-        return force
-
-    @staticmethod
-    def add_wall_force(force, x, y, work_piece, beta, wall_dist):
-        if abs(x - work_piece.width) < wall_dist:
-            force[0] += -max([15 * beta/abs(x - work_piece.width), wall_dist])
-        elif abs(x) < wall_dist:
-            force[0] += max([15 * beta/abs(x - work_piece.width), wall_dist])
-
-        if abs(y - work_piece.height) < wall_dist:
-            force[1] += -max([5.0 * beta/abs(y - work_piece.height), wall_dist])
-        elif abs(y) < wall_dist:
-            force[1] += max([5.0 * beta/abs(y - work_piece.height), wall_dist])
-
-
-    @staticmethod
-    def get_n_closest_sections(x, y, position_dict, n):
-        section_list = list()
-        dist_list = list()
-        for key in position_dict:
-            dist = np.sqrt((x-position_dict[key]['x_offset'])**2 + (y-position_dict[key]['y_offset'])**2)
-            if len(section_list) < n:
-                section_list.append(position_dict[key]['collider'])
-                dist_list.append(dist)
-            else:
-                max_dist = max(dist_list)
-                if max_dist > dist:
-                    max_index = dist_list.index(max_dist)
-                    dist_list[max_index] = dist
-                    section_list[max_index] = position_dict[key]['collider']
-
-        return section_list
-
-    @staticmethod
-    def create_section_collider(section, wall_thickness):
-        """
-        Creates an offset curve and compresses the curve to a lower point count to make collision detection more
-        efficient. Uses the section with the larger perimeter to create the collider.
-
-        :param comp.CrossSectionPair section:
-        :return: Compressed path used for collision detection.
-        :rtype: comp.CrossSection
-        """
-        larger_section = section.section1 if prim.GeometricFunctions.path_length(section.section1.get_path()) > \
-                                             prim.GeometricFunctions.path_length(
-                                                 section.section2.get_path()) else section.section2
-        path = prim.GeometricFunctions.offset_curve(larger_section.get_path(), offset_scale=wall_thickness, dir=0,
-                                                    divisions=2)
-        return comp.CrossSection(prim.Path(prim.GeometricFunctions.normalize_path_points(path, num_points=32)))
-
-    @staticmethod
-    def set_initial_cross_section_offsets(position_dict, work_piece):
-        """
-
-        :param position_dict:
-        :param prim.WorkPiece work_piece:
-        :return:
-        """
-        max_x = work_piece.width
-        max_y = work_piece.height
-        bb = prim.GeometricFunctions.get_bounding_box_from_path(position_dict[0]['collider'].get_path())
-        curr_x = (bb[1]['x'] - bb[0]['x'])/2.0
-        curr_y = max_y - (bb[1]['y'] - bb[0]['y'])/2.0
-
-        position_dict[0]['x_offset'] = curr_x
-        position_dict[0]['y_offset'] = curr_y
-        prim.GeometricFunctions.center_path(position_dict[0]['collider'].get_path())
-        position_dict[0]['collider'].translate([curr_x, curr_y, 0])
-
-        for ind in range(1, len(position_dict.keys())):
-            prim.GeometricFunctions.center_path(position_dict[ind]['collider'].get_path())
-            bound_box_curr = prim.GeometricFunctions.get_bounding_box_from_path(
-                position_dict[ind]['collider'].get_path())
-
-            if bound_box_curr[1][0] - bound_box_curr[0][0] < bound_box_curr[1][1] - bound_box_curr[0][1]:
-                position_dict[ind]['rot'] = 90.0
-                PointManip.Transform.rotate(position_dict[ind]['collider'].get_path(),
-                                            [0, 0, np.deg2rad(position_dict[ind]['rot'])])
-
-                bound_box_curr = prim.GeometricFunctions.get_bounding_box_from_path(
-                    position_dict[ind]['collider'].get_path())
-
-            bound_box_last = prim.GeometricFunctions.get_bounding_box_from_path(
-                position_dict[ind - 1]['collider'].get_path())
-
-            curr_x += (bound_box_last[1]['x'] - bound_box_last[0]['x'])/2.0 + \
-                      (bound_box_curr[1]['x'] - bound_box_curr[0]['x'])/2.0
-
-            if curr_x + (bound_box_curr[1]['x'] - bound_box_curr[0]['x'])/2 >= work_piece.width:
-                curr_y -= (bound_box_last[1]['y'] - bound_box_last[0]['y'])/2 + \
-                          (bound_box_curr[1]['y'] - bound_box_curr[0]['y'])/2
-                curr_x = (bound_box_curr[1]['x'] - bound_box_curr[0]['x'])/2.0
-
-            position_dict[ind]['x_offset'] = curr_x
-            position_dict[ind]['y_offset'] = curr_y
-
-            position_dict[ind]['collider'].translate([curr_x, curr_y, 0])
-
-    @staticmethod
-    def create_section_links_for_cross_section_pairs(cross_section_list):
-        """
-
-        :param list[comp.CrossSectionPair] cross_section_list:
-        :return:
-        :rtype: list[list[list[prim.SectionLink]]]
-        """
-        section1 = cross_section_list[0].section1.get_path()
-        section2 = cross_section_list[0].section2.get_path()
-
-        section_link_list = list()
-
-        link_1_y = prim.SectionLink(prim.Point(0, 0, section1[0]['z']),
-                                    prim.Point(0, section1[0]['y'], section1[0]['z']),
-                                    fast_cut=True)
-        link_2_y = prim.SectionLink(prim.Point(0, 0, section2[0]['z']),
-                                    prim.Point(0, section2[0]['y'], section2[0]['z']),
-                                    fast_cut=True)
-
-        link_1_x = prim.SectionLink(prim.Point(section1[0]['x'], section1[0]['y'], section1[0]['z']),
-                                    prim.Point(0, section1[0]['y'], section1[0]['z']),
-                                    fast_cut=False)
-        link_2_x = prim.SectionLink(prim.Point(section2[0]['x'], section2[0]['y'], section2[0]['z']),
-                                    prim.Point(0, section2[0]['y'], section2[0]['z']),
-                                    fast_cut=True)
-
-        section_link_list.append([[link_1_y, link_2_y], [link_1_x, link_2_x]])
-
-        for ind in range(1, len(cross_section_list)):
-            prev_section_1 = cross_section_list[ind-1].section1.get_path()
-            prev_section_2 = cross_section_list[ind-1].section2.get_path()
-            next_section_1 = cross_section_list[ind].section1.get_path()
-            next_section_2 = cross_section_list[ind].section2.get_path()
-
-            link_1 = prim.SectionLink(prim.Point(prev_section_1[-1]['x'], prev_section_1[-1]['y'],
-                                                 prev_section_1[-1]['z']),
-                                      prim.Point(next_section_1[-1]['x'], next_section_1[-1]['y'],
-                                                 next_section_1[-1]['z']),
-                                      False)
-
-            link_2 = prim.SectionLink(prim.Point(prev_section_2[-1]['x'], prev_section_2[-1]['y'],
-                                                 prev_section_2[-1]['z']),
-                                      prim.Point(next_section_2[-1]['x'], next_section_2[-1]['y'],
-                                                 next_section_2[-1]['z']),
-                                      False)
-
-            section_link_list.append([[link_1, link_2]])
-        return section_link_list
 
     @staticmethod
     def _polar_sort(points, center):
@@ -451,8 +186,10 @@ class PointManip():
             theta -= 180
             if theta < 0:
                 theta += 360
-
+            if isinstance(theta, np.ndarray):
+                theta = theta[0]
             keys.append(theta)
+            logger.debug('Theta: %s\np: %s', theta, p)
             polar_coords[theta] = p
         logger.debug('keys: %s', keys)
         rev_keys = copy.deepcopy(keys)
@@ -463,7 +200,6 @@ class PointManip():
             sorted_points.append(polar_coords[key])
 
         logger.debug('Sorted keys: %s', rev_keys)
-
         return sorted_points
 
     @staticmethod
@@ -524,6 +260,71 @@ class PointManip():
                 next_angle = next_angle_cw if dist_cw < dist_ccw else next_angle_ccw
                 sorted_points.append(angle_dict[next_angle])
         return sorted_points
+
+    @staticmethod
+    def _tsp_touchup(sorted_points, bandwidth, max_iter=20, ang_thresh=30):
+        return_points = copy.deepcopy(sorted_points)
+        for iter in range(0, max_iter):
+            volitile_points = PointManip.find_indexes_with_high_volitility(return_points, ang_thresh=ang_thresh)
+            plt.close('all')
+            plt.figure()
+            prim.GeometricFunctions.plot_path(return_points, color=None)
+            # plt.show()
+            if volitile_points:
+                min_ind = int(volitile_points[0] - bandwidth/2.0)
+                min_ind = len(sorted_points) - abs(min_ind) if min_ind < 0 else min_ind
+                max_ind = int(volitile_points[0] + bandwidth/2.0)
+                max_ind = max_ind - len(sorted_points) if max_ind > len(sorted_points) else max_ind
+                points = list()
+                if min_ind > max_ind:
+                    points.extend(return_points[min_ind:])
+                    points.extend(return_points[0:max_ind+1])
+                    resorted_points = PointManip.nn_sort(points)
+                    return_points = resorted_points[0:max_ind + 1] + return_points[
+                                                                     max_ind+1:min_ind] + resorted_points[min_ind:]
+                else:
+                    points.extend(return_points[min_ind:max_ind + 1])
+                    resorted_points = PointManip.nn_sort(points)
+                    return_points = return_points[0:min_ind] + resorted_points[min_ind:max_ind + 1] + return_points[
+                                                                                                      max_ind + 1:]
+            else:
+                break
+
+        return return_points
+
+    @staticmethod
+    def nn_sort(points):
+        sorted_points = [points[0]]
+        for ind in range(1, len(points)):
+            min_dist = sys.maxsize
+            closest_point = points[ind]
+            for ind2 in range(0, len(points)):
+                if points[ind2] not in sorted_points:
+                    dist = np.sqrt((sorted_points[-1] - points[ind2])**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_point = points[ind2]
+            sorted_points.append(closest_point)
+        return sorted_points
+
+    @staticmethod
+    def find_indexes_with_high_volitility(sorted_points, ang_thresh=30):
+        logger = logging.getLogger(__name__)
+        volitile_points = list()
+        for ind in range(0, len(sorted_points)-2):
+            vec_1 = sorted_points[ind] - sorted_points[ind + 1]
+            vec_2 = sorted_points[ind + 2] - sorted_points[ind + 1]
+            mag_1 = np.sqrt(vec_1**2)
+            mag_2 = np.sqrt(vec_2**2)
+            dot = vec_1 * vec_2
+            inside = np.clip(dot/(mag_1*mag_2), -1, 1)
+            ang = np.rad2deg(np.arccos(inside))
+            logger.debug('vec_1: %s, \nvec_2: %s\nmag_1: %s\nmag_2: %s\ndot: %s\nang: %s\ninside: %s\n', vec_1, vec_2,
+                         mag_1, mag_2, dot, ang, inside)
+            ang = ang + 360 if ang < 0 else ang
+            if abs(ang) <= ang_thresh or abs(360-ang) <= ang_thresh:
+                volitile_points.append(ind)
+        return volitile_points
 
     @staticmethod
     def get_mid_lines_from_closed_path(segments, points):
