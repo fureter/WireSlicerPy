@@ -21,14 +21,16 @@ class SpatialPlacement:
     def __init__(self, work_piece, wire_cutter):
         self.logger = logging.getLogger(__name__)
         self.state_dict = dict()
-        self.r_index = rtree.index.Index()
+        self.r_index = [rtree.index.Index()]
         self.work_piece = work_piece
-        self.section_order = None
+        self.section_order = list()
         self.unplaced_ind = list()
         self.wire_cutter = wire_cutter
+        self.num_sections = 0
 
     def bin_packing_algorithm(self, cross_section_list, output_dir, distance_between_sections):
         ind = 0
+        self.num_sections = 1
         for section in cross_section_list:
             prim.GeometricFunctions.center_path(section.get_path()[0])
             prim.GeometricFunctions.center_path(section.get_path()[1])
@@ -42,34 +44,11 @@ class SpatialPlacement:
 
             ang_from_centers = np.arctan2(diff_centers['y'], diff_centers['x'])
             ang_from_centers = ang_from_centers + 2 * np.pi if ang_from_centers < 0 else ang_from_centers
-
-            if 0 < ang_from_centers < np.pi / 2:
-                rot = 90
-            elif np.pi / 2 < ang_from_centers < np.pi:
-                rot = 0
-            elif np.pi < ang_from_centers < 3 * np.pi / 2:
-                rot = -90
-            else:
-                rot = 180
-            # TODO: Attempting to orient the pieces so that they are open towards the right
             rot = -ang_from_centers
 
-            config = 'L' if dist / longest > 0.07 else 'I'
-            rot = rot #if config == 'L' else 0
-
             self.state_dict[ind] = {'section': section, 'rot': rot, 'x_pos': 0, 'y_pos': 0,
-                                    'collider': collider, 'bb': bb, 'config': config}
+                                    'collider': collider, 'bb': bb, 'cut': self.num_sections}
             spma.PointManip.Transform.rotate(collider.get_path(), [0, 0, np.deg2rad(rot)], origin=path_center)
-            prim.GeometricFunctions.plot_path(collider.get_path(), color=None)
-            plt.plot([bb[0][0], bb[0][0], bb[1][0], bb[1][0], bb[0][0]],
-                     [bb[0][1], bb[1][1], bb[1][1], bb[0][1], bb[0][1]], 'k')
-            plt.scatter([bb_center['x']], [bb_center['y']], c='r')
-            plt.scatter([path_center['x']], [path_center['y']], c='r')
-            plt.quiver([bb_center['x']], [bb_center['y']], [diff_centers['x']], [diff_centers['y']])
-            plt.axis('equal')
-            plt.title('Rot Estimation: %s, ang: %s, ratio: %s, Config: %s' % (rot, np.rad2deg(ang_from_centers),
-                                                                              dist / longest, config))
-            plt.show()
 
             ind += 1
 
@@ -85,6 +64,8 @@ class SpatialPlacement:
             ordered_state_dict[index] = self.state_dict[ind]
             index += 1
 
+        self.calculate_initial_rotation()
+
         r_id = 0
 
         prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
@@ -93,83 +74,90 @@ class SpatialPlacement:
         last_pos_x = 0
         last_pos_y = self.work_piece.height
         indx = 0
+        time_out = 1000
 
         for ind in self.state_dict:
             item = self.state_dict[ind]
-            config = item['config']
-            if config == 'I' or config == 'L':
-                ar = (item['bb'][1][1] - item['bb'][0][1]) / (item['bb'][1][0] - item['bb'][0][0])
-                if ar < 1 and config != 'L':
-                    item['rot'] = 90
-                    spma.PointManip.Transform.rotate(item['collider'].get_path(), [0, 0, np.deg2rad(item['rot'])])
-                placed = False
-                while not placed:
-                    delta_x = last_pos_x - item['x_pos']
-                    delta_y = last_pos_y - item['y_pos']
-                    spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, delta_y, 0])
-                    item['x_pos'] = last_pos_x
-                    item['y_pos'] = last_pos_y
-                    bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
+            placed = False
+            iterations = 0
+            while not placed:
+                delta_x = last_pos_x - item['x_pos']
+                delta_y = last_pos_y - item['y_pos']
+                spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, delta_y, 0])
+                item['x_pos'] = last_pos_x
+                item['y_pos'] = last_pos_y
+                bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
 
-                    # Make sure the current bounding box is not outside of the work piece, we check against the
-                    # top right corner first, then check quad tree intersections
-                    if bb_curr[0]['x'] < 0:
-                        delta_x = -bb_curr[0]['x']
-                        spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, 0, 0])
-                        item['x_pos'] += delta_x
-                        last_pos_x += delta_x
-                        bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
-                    if bb_curr[1]['y'] > self.work_piece.height:
-                        delta_y = self.work_piece.height - bb_curr[1]['y']
-                        spma.PointManip.Transform.translate(item['collider'].get_path(), [0, delta_y, 0])
-                        item['y_pos'] += delta_y
-                        last_pos_y += delta_y
-                        bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
-                    (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], bb_curr[1]['y']
-                    intersections = list(self.r_index.intersection((left, bottom, right, top)))
-                    if len(intersections) > 0:
-                        last_pos_x += 1
-                    elif right > self.work_piece.width:
-                        last_pos_x = 0
-                        last_pos_y = 0
-                    else:
-                        if bb_curr[1]['x'] < self.work_piece.width:
-                            y_set = False
-                            while not y_set:
-                                if bb_curr[1]['y'] < self.work_piece.height:
-                                    delta_y = 1
-                                else:
-                                    delta_y = -1
-                                    y_set = True
+                # Make sure the current bounding box is not outside of the work piece, we check against the
+                # top right corner first, then check quad tree intersections
+                if bb_curr[0]['x'] < 0:
+                    delta_x = -bb_curr[0]['x']
+                    spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, 0, 0])
+                    item['x_pos'] += delta_x
+                    last_pos_x += delta_x
+                    bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
+                if bb_curr[1]['y'] > self.work_piece.height:
+                    delta_y = self.work_piece.height - bb_curr[1]['y']
+                    spma.PointManip.Transform.translate(item['collider'].get_path(), [0, delta_y, 0])
+                    item['y_pos'] += delta_y
+                    last_pos_y += delta_y
+                    bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
+                (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], bb_curr[1]['y']
+                intersections = list(self.r_index[self.num_sections-1].intersection((left, bottom, right, top)))
+                if len(intersections) > 0:
+                    last_pos_x += 1
+                elif right > self.work_piece.width:
+                    last_pos_x = 0
+                    last_pos_y = 0
+                else:
+                    if bb_curr[1]['x'] < self.work_piece.width:
+                        y_set = False
+                        while not y_set:
+                            if bb_curr[1]['y'] < self.work_piece.height:
+                                delta_y = 1
+                            else:
+                                delta_y = -1
+                                y_set = True
+                            spma.PointManip.Transform.translate(item['collider'].get_path(), [0, delta_y, 0])
+                            bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(
+                                item['collider'].get_path())
+                            last_pos_y += delta_y
+                            item['y_pos'] += delta_y
+
+                            (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], bb_curr[1][
+                                'y']
+                            intersections = list(self.r_index[self.num_sections-1].intersection((left, bottom, right, top)))
+                            if len(intersections) > 0 and bb_curr[0]['y'] > 0:
+                                delta_y = -1
                                 spma.PointManip.Transform.translate(item['collider'].get_path(), [0, delta_y, 0])
                                 bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(
                                     item['collider'].get_path())
                                 last_pos_y += delta_y
                                 item['y_pos'] += delta_y
-
-                                (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], \
-                                                             bb_curr[1]['y']
-                                intersections = list(self.r_index.intersection((left, bottom, right, top)))
-                                if len(intersections) > 0:
-                                    delta_y = -1
-                                    spma.PointManip.Transform.translate(item['collider'].get_path(), [0, delta_y, 0])
-                                    bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(
-                                        item['collider'].get_path())
-                                    last_pos_y += delta_y
-                                    item['y_pos'] += delta_y
-                                    y_set = True
-
-                            self.r_index.insert(id=r_id, coordinates=(left, bottom, right, top))
+                                y_set = True
+                        (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], bb_curr[1][
+                            'y']
+                        intersections = list(self.r_index[self.num_sections-1].intersection((left, bottom, right, top)))
+                        if len(intersections) == 0:
+                            item['cut'] = self.num_sections
+                            self.r_index[self.num_sections-1].insert(id=r_id, coordinates=(left, bottom, right, top))
                             r_id += 1
                             placed = True
-                        else:
-                            delta_x = -left
-                            spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, 0, 0])
-                            bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
-                            (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], \
-                                                         bb_curr[1]['y']
-                            last_pos_y += delta_x
-                            item['y_pos'] += delta_x
+                    else:
+                        delta_x = -left
+                        spma.PointManip.Transform.translate(item['collider'].get_path(), [delta_x, 0, 0])
+                        bb_curr = prim.GeometricFunctions.get_bounding_box_from_path(item['collider'].get_path())
+                        (left, bottom, right, top) = bb_curr[0]['x'], bb_curr[0]['y'], bb_curr[1]['x'], bb_curr[1]['y']
+                        last_pos_y += delta_x
+                        item['y_pos'] += delta_x
+                if iterations > time_out:
+                    iterations = 0
+                    last_pos_x = 0
+                    last_pos_y = self.work_piece.height
+                    self.num_sections += 1
+                    self.r_index.append(rtree.index.Index())
+                else:
+                    iterations += 1
             prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
                                                                      index='%s' % indx)
             indx += 1
@@ -179,7 +167,7 @@ class SpatialPlacement:
 
     def apply_state_dict(self):
         for entry in self.state_dict.values():
-            center = self.wire_cutter.wire_length/2
+            center = self.wire_cutter.wire_length / 2
             translate1 = [entry['x_pos'], entry['y_pos'], center - self.work_piece.thickness]
             translate2 = [entry['x_pos'], entry['y_pos'], center + self.work_piece.thickness]
             sec_1_path = entry['section'].section1.get_path()
@@ -191,6 +179,23 @@ class SpatialPlacement:
             entry['bb'] = prim.GeometricFunctions.get_bounding_box_from_path(entry['collider'].get_path())
             assert len(sec_1_path) > 1, 'Error: Section 1 of State dict entry [%s] has no Points.' % entry
             assert len(sec_2_path) > 1, 'Error: Section 2 of State dict entry [%s] has no Points.' % entry
+
+    def calculate_initial_rotation(self):
+        for ind in self.state_dict:
+            path = self.state_dict[ind]['collider'].get_path()
+            furthest_dist = 0
+            p1 = path[0]
+            p2 = path[1]
+            for point1 in range(0, len(path)-1):
+                for point2 in range(point1+1, len(path)):
+                    dist = np.sqrt((path[point2] - path[point1])**2)
+                    if dist > furthest_dist:
+                        p1 = path[point1]
+                        p2 = path[point2]
+                        furthest_dist = dist
+            angle = np.arctan2(p1['y'] - p2['y'], p1['x']-p2['x'])
+            self.state_dict[ind]['rot'] = np.rad2deg(-angle) + 90
+            spma.PointManip.Transform.rotate(path, [0, 0, -angle + np.pi/2])
 
     def create_section_links_for_cross_section_pairs(self):
         """
@@ -204,65 +209,69 @@ class SpatialPlacement:
 
         z_1 = self.state_dict[0]['section'].section1.get_path()[0]['z']
         z_2 = self.state_dict[0]['section'].section2.get_path()[0]['z']
+        for ind in range(self.num_sections):
+            cut_list_1.append(list())
+            cut_list_2.append(list())
+            section_order_list = self._get_section_order(ind)
+            prev_point_1 = prim.Point(0, 0, z_1)
+            prev_point_2 = prim.Point(0, 0, z_2)
+            for y_axis in section_order_list:
+                min_ind = prim.GeometricFunctions.get_index_min_coord(
+                    self.state_dict[y_axis[0]]['section'].section1.get_path(), 'x')
+                y_start = self.state_dict[y_axis[0]]['section'].section1.get_path()[min_ind]['y']
+                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1), fast_cut=True))
+                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2), fast_cut=True))
+                prev_point_1 = prim.Point(0, y_start, z_1)
+                prev_point_2 = prim.Point(0, y_start, z_2)
+                for x_axis in y_axis:
+                    section = self.state_dict[x_axis]['section']
+                    section_1 = section.section1.get_path()
+                    section_2 = section.section2.get_path()
 
-        section_order_list = self._get_section_order()
-        prev_point_1 = prim.Point(0, 0, z_1)
-        prev_point_2 = prim.Point(0, 0, z_2)
-        for y_axis in section_order_list:
-            min_ind = prim.GeometricFunctions.get_index_min_coord(
-                self.state_dict[y_axis[0]]['section'].section1.get_path(), 'x')
-            y_start = self.state_dict[y_axis[0]]['section'].section1.get_path()[min_ind]['y']
-            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1), fast_cut=True))
-            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2), fast_cut=True))
-            prev_point_1 = prim.Point(0, y_start, z_1)
-            prev_point_2 = prim.Point(0, y_start, z_2)
-            for x_axis in y_axis:
-                section = self.state_dict[x_axis]['section']
-                section_1 = section.section1.get_path()
-                section_2 = section.section2.get_path()
+                    err_prompt = 'Error Sections do not have the same number of points S1 %s, S2 %s' % \
+                                 (len(section_1), len(section_2))
+                    assert abs(len(section_1) - len(section_2)) <= 1, err_prompt
 
-                err_prompt = 'Error Sections do not have the same number of points S1 %s, S2 %s' % \
-                             (len(section_1), len(section_2))
-                assert abs(len(section_1) - len(section_2)) <= 1, err_prompt
+                    min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
+                    max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
 
-                min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
-                max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[min_ind]['x'],
+                                                                                     section_1[min_ind]['y'], z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[min_ind]['x'],
+                                                                                     section_2[min_ind]['y'], z_2)))
 
-                cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_1[min_ind]['x'],
-                                                                            section_1[min_ind]['y'], z_1)))
-                cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_2[min_ind]['x'],
-                                                                            section_2[min_ind]['y'], z_2)))
+                    prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1[ind], cut_list_2[ind], False,
+                                                                              section_1,
+                                                                              section_2, z_1, z_2)
+                    if prev_point_1 is None:
+                        prev_point_1 = prim.Point(section_1[max_ind]['x'],
+                                                  section_1[max_ind]['y'], z_1)
+                        prev_point_2 = prim.Point(section_2[max_ind]['x'],
+                                                  section_2[max_ind]['y'], z_2)
 
-                prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1, cut_list_2, False, section_1,
-                                                                          section_2, z_1, z_2)
-                if prev_point_1 is None:
-                    prev_point_1 = prim.Point(section_1[max_ind]['x'],
-                                              section_1[max_ind]['y'], z_1)
-                    prev_point_2 = prim.Point(section_2[max_ind]['x'],
-                                              section_2[max_ind]['y'], z_2)
+                for x_axis in reversed(y_axis):
+                    section = self.state_dict[x_axis]['section']
+                    section_1 = section.section1.get_path()
+                    section_2 = section.section2.get_path()
 
-            for x_axis in reversed(y_axis):
-                section = self.state_dict[x_axis]['section']
-                section_1 = section.section1.get_path()
-                section_2 = section.section2.get_path()
+                    min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
+                    max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
 
-                min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
-                max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
+                    if prev_point_1 != prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'], z_1):
+                        cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
+                                                                                         section_1[max_ind]['y'], z_1)))
+                        cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[max_ind]['x'],
+                                                                                         section_2[max_ind]['y'], z_2)))
 
-                if prev_point_1 != prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'], z_1):
-                    cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
-                                                                                section_1[max_ind]['y'], z_1)))
-                    cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_2[max_ind]['x'],
-                                                                                section_2[max_ind]['y'], z_2)))
+                    prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1[ind], cut_list_2[ind], True,
+                                                                              section_1,
+                                                                              section_2, z_1, z_2)
 
-                prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1, cut_list_2, True, section_1,
-                                                                          section_2, z_1, z_2)
+                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1)))
+                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2)))
 
-            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1)))
-            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2)))
-
-            prev_point_1 = prim.Point(0, y_start, z_1)
-            prev_point_2 = prim.Point(0, y_start, z_2)
+                prev_point_1 = prim.Point(0, y_start, z_1)
+                prev_point_2 = prim.Point(0, y_start, z_2)
 
         return cut_list_1, cut_list_2
 
@@ -274,31 +283,30 @@ class SpatialPlacement:
         point2 = None
         if min_ind > max_ind:
             if reverse_dir:
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[max_ind:min_ind+1])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[max_ind:min_ind+1])))
+                cut_list_1.append(comp.CrossSection(prim.Path(section_1[max_ind:min_ind + 1])))
+                cut_list_2.append(comp.CrossSection(prim.Path(section_2[max_ind:min_ind + 1])))
                 point1 = section_1[min_ind]
                 point2 = section_2[min_ind]
             else:
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[min_ind:])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[min_ind:])))
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[0:max_ind+1])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[0:max_ind+1])))
+                path1 = prim.Path(section_1[min_ind:] + section_1[0:max_ind + 1])
+                path2 = prim.Path(section_2[min_ind:] + section_2[0:max_ind + 1])
+                cut_list_1.append(comp.CrossSection(path1))
+                cut_list_2.append(comp.CrossSection(path2))
                 point1 = section_1[max_ind]
                 point2 = section_2[max_ind]
 
         else:
             if reverse_dir:
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[max_ind:])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[max_ind:])))
-
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[0:min_ind+1])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[0:min_ind+1])))
+                path1 = prim.Path(section_1[max_ind:] + section_1[0:min_ind + 1])
+                path2 = prim.Path(section_2[max_ind:] + section_2[0:min_ind + 1])
+                cut_list_1.append(comp.CrossSection(path1))
+                cut_list_2.append(comp.CrossSection(path2))
                 point1 = section_1[min_ind]
                 point2 = section_2[min_ind]
 
             else:
-                cut_list_1.append(comp.CrossSection(prim.Path(section_1[min_ind:max_ind+1])))
-                cut_list_2.append(comp.CrossSection(prim.Path(section_2[min_ind:max_ind+1])))
+                cut_list_1.append(comp.CrossSection(prim.Path(section_1[min_ind:max_ind + 1])))
+                cut_list_2.append(comp.CrossSection(prim.Path(section_2[min_ind:max_ind + 1])))
                 point1 = section_1[max_ind]
                 point2 = section_2[max_ind]
 
@@ -328,7 +336,7 @@ class SpatialPlacement:
 
         return comp.CrossSection(prim.Path(path))
 
-    def _get_section_order(self):
+    def _get_section_order(self, cut_piece):
         """
 
         :return: List of lists containing the order in which to cut cross sections.
@@ -341,23 +349,25 @@ class SpatialPlacement:
         # Grab the entries that are along the y_axis boundary, these are used as the anchors to grab the remaining
         # pieces
         for ind in self.state_dict:
-            if self.state_dict[ind]['bb'][0]['x'] <= 0:
-                y_pos = (self.state_dict[ind]['bb'][1]['y'] + self.state_dict[ind]['bb'][0]['y']) / 2
-                x_pos = (self.state_dict[ind]['bb'][1]['x'] + self.state_dict[ind]['bb'][0]['x']) / 2
-                section_order_dict[y_pos] = dict()
-                section_order_dict[y_pos][x_pos] = ind
-                ind_taken.append(ind)
+            if self.state_dict[ind]['cut'] == cut_piece + 1:
+                if self.state_dict[ind]['bb'][0]['x'] <= 0:
+                    y_pos = (self.state_dict[ind]['bb'][1]['y'] + self.state_dict[ind]['bb'][0]['y']) / 2
+                    x_pos = (self.state_dict[ind]['bb'][1]['x'] + self.state_dict[ind]['bb'][0]['x']) / 2
+                    section_order_dict[y_pos] = dict()
+                    section_order_dict[y_pos][x_pos] = ind
+                    ind_taken.append(ind)
 
         for ind in self.state_dict:
-            if ind not in ind_taken:
-                for ind_y in section_order_dict:
-                    if self.state_dict[ind]['bb'][0]['y'] <= ind_y < self.state_dict[ind]['bb'][1]['y']:
-                        x_pos = (self.state_dict[ind]['bb'][1]['x'] + self.state_dict[ind]['bb'][0]['x']) / 2
-                        section_order_dict[ind_y][x_pos] = ind
-                        ind_taken.append(ind)
-                        break
+            if self.state_dict[ind]['cut'] == cut_piece + 1:
                 if ind not in ind_taken:
-                    self.unplaced_ind.append(ind)
+                    for ind_y in section_order_dict:
+                        if self.state_dict[ind]['bb'][0]['y'] <= ind_y < self.state_dict[ind]['bb'][1]['y']:
+                            x_pos = (self.state_dict[ind]['bb'][1]['x'] + self.state_dict[ind]['bb'][0]['x']) / 2
+                            section_order_dict[ind_y][x_pos] = ind
+                            ind_taken.append(ind)
+                            break
+                    if ind not in ind_taken:
+                        self.unplaced_ind.append(ind)
 
         for ind in self.unplaced_ind:
             min_dist = 1000000
@@ -376,63 +386,65 @@ class SpatialPlacement:
         for ind_y in sorted(section_order_dict, reverse=True):
             tmp_lst = list()
             for ind_x in sorted(section_order_dict[ind_y]):
-                tmp_lst.append(section_order_dict[ind_y][ind_x])
+                if self.state_dict[section_order_dict[ind_y][ind_x]]['cut'] == cut_piece + 1:
+                    tmp_lst.append(section_order_dict[ind_y][ind_x])
             section_order_list.append(tmp_lst)
 
-        self.section_order = section_order_list
-        return self.section_order
+        self.section_order.append(section_order_list)
+        return self.section_order[cut_piece]
 
     def plot_section_order(self, output_dir):
-        plt.close('all')
-        plt.figure(figsize=(16, 9), dpi=320)
-        for ind1 in range(0, len(self.section_order)):
-            for ind2 in range(0, len(self.section_order[ind1])):
-                ind = self.section_order[ind1][ind2]
-                prim.GeometricFunctions.plot_path(path=self.state_dict[ind]['section'].section1.get_path(),
-                                                  color='C%s' % ind1, scatter=False)
-                prim.GeometricFunctions.plot_path(path=self.state_dict[ind]['section'].section2.get_path(),
-                                                  color='C%s' % ind1, scatter=False)
-                txt = plt.text(self.state_dict[ind]['x_pos'], self.state_dict[ind]['y_pos'],
-                               s='C%s, O(%s,%s)' % (ind, ind1, ind2), fontsize='x-small')
-                txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
+        for cut_section in range(self.num_sections):
+            plt.close('all')
+            plt.figure(figsize=(16, 9), dpi=320)
+            for ind1 in range(0, len(self.section_order[cut_section])):
+                for ind2 in range(0, len(self.section_order[cut_section][ind1])):
+                    ind = self.section_order[cut_section][ind1][ind2]
+                    prim.GeometricFunctions.plot_path(path=self.state_dict[ind]['section'].section1.get_path(),
+                                                      color='C%s' % ind1, scatter=False)
+                    prim.GeometricFunctions.plot_path(path=self.state_dict[ind]['section'].section2.get_path(),
+                                                      color='C%s' % ind1, scatter=False)
+                    txt = plt.text(self.state_dict[ind]['x_pos'], self.state_dict[ind]['y_pos'],
+                                   s='C%s, O(%s,%s)' % (ind, ind1, ind2), fontsize='x-small')
+                    txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
 
-            plt.axis('equal')
-            plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_order.png'))
+                plt.axis('equal')
+                plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_order.png'))
 
     def plot_section_splitting_debug(self, output_dir):
-        section_order_list = self._get_section_order()
-        ind = 0
-        for y_axis in section_order_list:
-            for x_axis in y_axis:
-                plt.close('all')
-                plt.figure(figsize=(16, 9), dpi=320)
-                section = self.state_dict[x_axis]['section']
-                section_1 = section.section1.get_path()
-                section_2 = section.section2.get_path()
+        for cut_section in range(self.num_sections):
+            section_order_list = self.section_order[cut_section]
+            ind = 0
+            for y_axis in section_order_list:
+                for x_axis in y_axis:
+                    plt.close('all')
+                    plt.figure(figsize=(16, 9), dpi=320)
+                    section = self.state_dict[x_axis]['section']
+                    section_1 = section.section1.get_path()
+                    section_2 = section.section2.get_path()
 
-                min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
-                max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
+                    min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
+                    max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
 
-                if min_ind < max_ind:
-                    prim.GeometricFunctions.plot_path(section_1[min_ind:max_ind+1], color='C1', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_1[max_ind:], color='C2', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_1[0:min_ind+1], color='C2', scatter=False)
+                    if min_ind < max_ind:
+                        prim.GeometricFunctions.plot_path(section_1[min_ind:max_ind + 1], color='C1', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_1[max_ind:], color='C2', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_1[0:min_ind + 1], color='C2', scatter=False)
 
-                    prim.GeometricFunctions.plot_path(section_2[min_ind:max_ind+1], color='C3', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_2[max_ind:], color='C4', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_2[0:min_ind+1], color='C4', scatter=False)
-                else:
-                    prim.GeometricFunctions.plot_path(section_1[min_ind:], color='C5', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_1[0:max_ind+1], color='C5', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_1[max_ind:min_ind+1], color='C6', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_2[min_ind:max_ind + 1], color='C3', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_2[max_ind:], color='C4', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_2[0:min_ind + 1], color='C4', scatter=False)
+                    else:
+                        prim.GeometricFunctions.plot_path(section_1[min_ind:], color='C5', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_1[0:max_ind + 1], color='C5', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_1[max_ind:min_ind + 1], color='C6', scatter=False)
 
-                    prim.GeometricFunctions.plot_path(section_2[min_ind:], color='C7', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_2[0:max_ind+1], color='C7', scatter=False)
-                    prim.GeometricFunctions.plot_path(section_2[max_ind:min_ind+1], color='C8', scatter=False)
-                plt.axis('equal')
-                plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_splitting_debug_%s.png' % ind))
-                ind += 1
-
+                        prim.GeometricFunctions.plot_path(section_2[min_ind:], color='C7', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_2[0:max_ind + 1], color='C7', scatter=False)
+                        prim.GeometricFunctions.plot_path(section_2[max_ind:min_ind + 1], color='C8', scatter=False)
+                    plt.axis('equal')
+                    plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_splitting_debug_%s.png' % ind))
+                    ind += 1
 
     class Depricated:
         @staticmethod
@@ -451,7 +463,8 @@ class SpatialPlacement:
             for section in cross_section_list:
                 state_dict.append({'section': section, 'rot': 0, 'omega': 0, 'x_pos': 0, 'y_pos': 0, 'v': 10, 'u': -15,
                                    'prev_rot': 0, 'prev_omega': 0, 'prev_x': 0, 'prev_y': 0, 'prev_v': 0, 'prev_u': 0,
-                                   'collider': SpatialPlacement.create_section_collider(section, distance_between_sections),
+                                   'collider': SpatialPlacement.create_section_collider(section,
+                                                                                        distance_between_sections),
                                    'collisions': [], 'prev_collisions': [], 'mass': 1, 'I': 1e3})
                 if ind > 0:
                     state_dict[ind - 1]['mass'] = 1e12
@@ -487,13 +500,15 @@ class SpatialPlacement:
                     SpatialPlacement.integrate_state_dict(state_dict, dt, force, work_piece_copy)
                     SpatialPlacement.apply_collisions(state_dict, work_piece)
                     prim.GeometricFunctions.plot_cross_sections_on_workpiece(state_dict, work_piece_copy, output_dir,
-                                                                             index='%s_%s' % (ind, index), new_fig=False)
+                                                                             index='%s_%s' % (ind, index),
+                                                                             new_fig=False)
                     # work_piece_copy = prim.WorkPiece(width=work_piece_copy.width*0.99, height=work_piece_copy.height*0.99,
                     #                                  thickness=work_piece.thickness)
                     index += 1
                     used_work_space = SpatialPlacement.used_workpiece_area(state_dict)
                     logger.info('Finished iteration %s, took %ss, DT: %ss', index, timeit.default_timer() - start, dt)
-                    logger.info('Space Usage %smm^2, Change %smm^2', used_work_space, (used_work_space - prev_used_space))
+                    logger.info('Space Usage %smm^2, Change %smm^2', used_work_space,
+                                (used_work_space - prev_used_space))
                     prev_used_space = used_work_space
                     plt.close('all')
                     vel = np.sqrt(state_dict[ind]['u'] ** 2 + state_dict[ind]['v'] ** 2)
@@ -537,13 +552,16 @@ class SpatialPlacement:
             ind = 0
             for section in cross_section_list:
                 state_dict[ind] = {'section': section, 'rot': 0, 'omega': 0, 'x_pos': 0, 'y_pos': 0, 'v': 10, 'u': -10,
-                                   'prev_rot': 0, 'prev_omega': 0, 'prev_x': 0, 'prev_y': 0, 'prev_v': 10, 'prev_u': -10,
-                                   'collider': SpatialPlacement.create_section_collider(section, distance_between_sections),
+                                   'prev_rot': 0, 'prev_omega': 0, 'prev_x': 0, 'prev_y': 0, 'prev_v': 10,
+                                   'prev_u': -10,
+                                   'collider': SpatialPlacement.create_section_collider(section,
+                                                                                        distance_between_sections),
                                    'collisions': [], 'prev_collisions': []}
                 ind += 1
             logger.info("Setting initial positions for Cross Sections on the work_piece")
             SpatialPlacement.set_initial_cross_section_offsets(state_dict, work_piece)
-            prim.GeometricFunctions.plot_cross_sections_on_workpiece(state_dict, work_piece, output_dir, index='initial')
+            prim.GeometricFunctions.plot_cross_sections_on_workpiece(state_dict, work_piece, output_dir,
+                                                                     index='initial')
             plt.show()
 
             prev_used_space = SpatialPlacement.used_workpiece_area(state_dict)
@@ -684,7 +702,8 @@ class SpatialPlacement:
 
                             impulse_mag = SpatialPlacement.reaction_impulse_mag(state_dict[ind]['mass'],
                                                                                 state_dict_2['mass'],
-                                                                                state_dict[ind]['I'], state_dict_2['I'], r1,
+                                                                                state_dict[ind]['I'], state_dict_2['I'],
+                                                                                r1,
                                                                                 r2,
                                                                                 e=e, n=n,
                                                                                 vr=vp1 - vp2)
@@ -697,8 +716,9 @@ class SpatialPlacement:
 
                             state_dict[ind]['omega'] = state_dict[ind]['omega'] + impulse_mag * np.cross(r1, n)[2] / \
                                                        state_dict[ind]['I']
-                            state_dict_2['omega'] = state_dict_2['omega'] - impulse_mag * np.cross(r1, n)[2] / state_dict_2[
-                                'I']
+                            state_dict_2['omega'] = state_dict_2['omega'] - impulse_mag * np.cross(r1, n)[2] / \
+                                                    state_dict_2[
+                                                        'I']
 
                     state_dict[ind]['prev_collisions'] = state_dict[ind]['collisions']
                     state_dict[ind]['collisions'] = []
@@ -938,7 +958,8 @@ class SpatialPlacement:
 
         @staticmethod
         def get_collision_force_from_line(center1, center2, point, line, force1, force2, dist, spring_const):
-            normal_vecs = prim.GeometricFunctions.normal_vector(line.get_path()[0], line.get_path()[1], next_point=None)[0]
+            normal_vecs = \
+                prim.GeometricFunctions.normal_vector(line.get_path()[0], line.get_path()[1], next_point=None)[0]
             force = spring_const * dist
             force_x = force * normal_vecs[0]
             force_y = force * normal_vecs[1]
@@ -1122,7 +1143,8 @@ class SpatialPlacement:
             resultant_vector = closest_point - curr_point
             dist = np.sqrt(resultant_vector ** 2)
             if section.point_in_section(prim.Point(x, y, 0)):
-                scale = abs((2 * dist) ** 1.5) / 10.0 * beta  # forcing value to get points outside of other collider box
+                scale = abs(
+                    (2 * dist) ** 1.5) / 10.0 * beta  # forcing value to get points outside of other collider box
                 force[0] = scale * resultant_vector[0]
                 force[1] = scale * resultant_vector[1]
             else:

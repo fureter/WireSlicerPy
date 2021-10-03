@@ -184,7 +184,10 @@ class CrossSectionPair():
         """
         subdivided_list = list()
         for section_pair in section_list:
-            sections = section_pair.subdivide(num_sections)
+            if num_sections > 1:
+                sections = section_pair.subdivide(num_sections)
+            else:
+                sections = [section_pair]
             subdivided_list.extend(sections)
             for section in sections:
                 assert len(section.get_path()) > 1, 'Error: Subdivided section has no points'
@@ -343,7 +346,7 @@ class CutPath():
     def cut_list_2(self):
         return self._cut_list_2
 
-    def is_valid_cut_path(self):
+    def is_valid_cut_path(self, tol=0.01):
         logger = logging.getLogger(__name__)
         ret_val = True
         l1 = len(self._cut_list_1)
@@ -367,11 +370,12 @@ class CutPath():
                 # logger.debug('cut_list_1[indx].path[-1]: %s', self._cut_list_1[indx].get_path()[-1])
                 # logger.debug('cut_list_1[indx].path[-1]: %s', self._cut_list_1[indx].get_path()[-1])
                 # logger.debug('cut_list_1[indx+1].path[0]: %s', self._cut_list_1[indx + 1].get_path()[0])
-                if self.cut_list_1[indx + 1].get_path()[0] != self._cut_list_1[indx].get_path()[-1]:
+                logger.debug('dist: %s', np.sqrt((self.cut_list_1[indx + 1].get_path()[0] - self._cut_list_1[indx].get_path()[-1])**2))
+                if np.sqrt((self.cut_list_1[indx + 1].get_path()[0] - self._cut_list_1[indx].get_path()[-1])**2) > tol:
                     logger.error('Error: End of a Section is not the start of another (%s != %s)' %
                                  (self.cut_list_1[indx + 1].get_path()[0], self._cut_list_1[indx].get_path()[-1]))
                     ret_val = False
-                if self.cut_list_2[indx + 1].get_path()[0] != self._cut_list_2[indx].get_path()[-1]:
+                if np.sqrt((self.cut_list_2[indx + 1].get_path()[0] - self._cut_list_2[indx].get_path()[-1])**2) > tol:
                     logger.error('Error: End of a Section is not the start of another (%s != %s)' %
                                  (self.cut_list_2[indx + 1].get_path()[0], self._cut_list_2[indx].get_path()[-1]))
                     ret_val = False
@@ -574,27 +578,27 @@ class CutPath():
         return cut_path
 
     @staticmethod
-    def create_cut_path_from_cross_section_pair_list(cross_section_pairs, work_piece, wire_cutter, output_dir):
+    def create_cut_path_from_cross_section_pair_list(cross_section_pairs, work_piece, wire_cutter, section_gap,
+                                                     output_dir):
         """
 
         :param list[CrossSectionPair] cross_section_pairs:
-        :return: Returns a CutPath created from the cross_section_pairs
-        :rtype: CutPath
+        :return: Returns a list of CutPath[s] created from the cross_section_pairs
+        :rtype: list[CutPath]
         """
         logger = logging.getLogger(__name__)
         start = timeit.default_timer()
         sp = SpatialPlacement(work_piece, wire_cutter)
-        sp.bin_packing_algorithm(cross_section_pairs, output_dir=output_dir, distance_between_sections=5)
+        sp.bin_packing_algorithm(cross_section_pairs, output_dir=output_dir, distance_between_sections=section_gap)
         logger.debug('Finished aligning cross sections on workpiece, took %ss', timeit.default_timer() - start)
-
-        # todo: normalize cross section pair lists here?
 
         cut_path_1, cut_path_2 = sp.create_section_links_for_cross_section_pairs()
         sp.plot_section_order(output_dir)
         sp.plot_section_splitting_debug(output_dir)
-        cut_path = CutPath(cut_path_1, cut_path_2)
-        cut_path.plot_cut_path(out_dir=output_dir)
-        return cut_path
+        cut_paths = list()
+        for ind in range(sp.num_sections):
+            cut_paths.append(CutPath(cut_path_1[ind], cut_path_2[ind]))
+        return cut_paths
 
     def plot_section_link_connections(self):
         plt.figure()
@@ -703,54 +707,59 @@ class STL():
         self._file_path = file_path
         self._setup(units=units)
 
-    def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, length, open_nose=False,
+    def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, open_nose=False,
                                    open_tail=False):
         """
 
-        :param float wall_thickness:
-        :param prim.Plane origin_plane:
-        :param float spacing:
-        :param int length:
-        :param bool open_nose:
-        :param bool open_tail:
-        :return:
+        :param float wall_thickness: Thickness of the part from the outer shell to the inner shell created by a simple
+         shell operation.
+        :param prim.Plane origin_plane: Plane defining the origin of the slicing process and the normal vector for the
+         direction of the cuts.
+        :param float spacing: Relative spacing between each sliced cross section.
+        :param int number_sections: Number of sections to divide the STL into.
+        :param bool open_nose: Whether the nose should be entirly hollow.
+        :param bool open_tail: Whether the tail should be entirly hollow.
+        :return: List of CrossSectionPairs created from the STL object.
+        :rtype: list[CrossSectionPair]
         """
         logger = logging.getLogger(__name__)
         cross_section_pair_list = list()
-        self.slice_into_cross_sections(origin_plane, spacing, length)
+        self.slice_into_cross_sections(origin_plane, spacing, number_sections)
         cross_section_list = copy.deepcopy(self.cross_sections)
 
-        if open_nose and len(cross_section_list) > 1:
+        if open_nose and len(cross_section_list) > 1 and wall_thickness > 0:
             cross_section_list[0].add_simple_hole_from_offset(wall_thickness)
-        if open_tail and len(cross_section_list) > 2:
+        if open_tail and len(cross_section_list) > 2 and wall_thickness > 0:
             cross_section_list[-1].add_simple_hole_from_offset(wall_thickness)
 
         for ind in range(1, len(cross_section_list)-1):
             if not open_nose and ind == 1:
                 cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1],
                                                                 copy.deepcopy(cross_section_list[ind])))
-                cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
+                if wall_thickness > 0:
+                    cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
             elif not open_tail and ind == len(cross_section_list)-1:
                 cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1], cross_section_list[ind]))
             else:
-                cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
+                if wall_thickness > 0:
+                    cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
                 cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1], cross_section_list[ind]))
         cross_section_pair_list.append(CrossSectionPair(cross_section_list[-2], cross_section_list[-1]))
 
         return cross_section_pair_list
 
-    def slice_into_cross_sections(self, origin_plane, spacing, length):
+    def slice_into_cross_sections(self, origin_plane, spacing, number_sections):
         """
+        Slices the STL into `number_sections` with `spacing` separation normal to the `origin_plane`.
 
-        :param Plane origin_plane:
-        :param int length:
-        :param float spacing:
-        :return:
-        :rtype: list[CrossSection]
+        :param Plane origin_plane: Plane object defining the origin and the direction of the slices.
+        :param int number_sections: Number of cross sections to create from the stl.
+        :param float spacing: Relative spacing between each cross section in mm.
         """
+        logger = logging.getLogger(__name__)
         self.trimesh_cross_sections = list()
         heights = list()
-        for i in range(length):
+        for i in range(number_sections):
             heights.append(spacing*i)
         origin = np.array(origin_plane.origin)
         normal = np.array(origin_plane.normal)
@@ -760,27 +769,29 @@ class STL():
             self.cross_sections = list()
             for ind1, section in enumerate(sections):
                 points = list()
+                # Add the points from trimesh discrete path
                 for ind in range(0, len(section.discrete[0])):
                     points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], 0))
-                plt.close('all')
-                plt.figure(figsize=(16, 9), dpi=320)
-                prim.GeometricFunctions.plot_path(points, color='C1', scatter=True)
+                # Reorder the points to be in a clockwise order with the first point being at 180 deg from center.
                 path = PointManip.reorder_2d_cw(points, method=3)
+                # Close the path so that the last point is the first point.
                 path = prim.GeometricFunctions.close_path(path)
-                path = prim.GeometricFunctions.normalize_path_points(path, 512*2)
-                prim.GeometricFunctions.plot_path(path, color='C2', scatter=True)
-                plt.legend(['C1: Before mod', 'C2: After mod'])
-                output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'plots', 'Impulse_Reaction')
-                plt.axis('equal')
-                plt.savefig(os.path.join(output_dir, 'Cross_Section_Debug_%s.png' % ind1))
-                plt.show()
-                # plt.show()
+                # Normalize the path so that there are X number points uniform spacing from one another.
+                # length = prim.GeometricFunctions.path_length(path)
+                # num_points = int(length/0.1)
+                # logger.debug('Number of points for section: %s', num_points)
+                path = prim.GeometricFunctions.normalize_path_points(path, num_points=256)
+                # Remove any duplicate points that are memory equivalent, these points would get double transformed
+                # later down the line.
                 path = prim.GeometricFunctions.remove_duplicate_memory_from_path(path)
 
+                # Save off the transformed points as CrossSections
                 self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
                 self.logger.debug('section: %s', self.cross_sections[-1])
+            # Center the CrossSections so that the center of the most forward cross section is at zero x,y. All
+            # CrossSections are translated by the same amount to keep the same relative positioning.
             self.center_cross_sections()
-            self.close_sections()
+            # self.close_sections()
         else:
             raise AttributeError('Error: Plane with origin(%s) does not intersect the STL' % origin_plane.origin)
 
