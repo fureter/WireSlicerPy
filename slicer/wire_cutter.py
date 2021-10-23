@@ -35,5 +35,11 @@ class WireCutter():
         """
         self.start_up_gcode = g_code
 
-    def set_kerf(self, kerf):
+    def set_kerf(self, kerf, max_kerf):
+        """
+
+        :param kerf: Generalized kerf value in mm^2. Kerf value is calculated as kerf/path_length.
+        :param max_kerf: Band-aid for handling very small sections.
+        """
         self.kerf = kerf
+        self.max_kerf = max_kerf

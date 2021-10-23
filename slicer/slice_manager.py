@@ -32,18 +32,38 @@ class SliceManager(object):
         :param str units: Units the stl file are saved as, used to convert to mm.
         """
         logger = logging.getLogger(__name__)
-        self.create_folders(output_dir)
+        self.create_folders(output_dir, name)
+        output_dir = os.path.join(output_dir, name)
         cut_stl = comp.STL(file_path=stl_path, units=units)
         cut_stl.mesh.convert_units('mm')
         bounding_box = cut_stl.mesh.bounds
         logger.info('Bounds: %s' % bounding_box)
 
-        normal = np.array([1, 0, 0])
-        scale = 0.999 if bounding_box[0][1] < 0 else 1.001
+        x_len = abs(bounding_box[1][0] - bounding_box[0][0])
+        y_len = abs(bounding_box[1][1] - bounding_box[0][1])
+        z_len = abs(bounding_box[1][2] - bounding_box[0][2])
+        max_len = max(x_len, y_len, z_len)
+
+        x_norm = 0
+        y_norm = 0
+        z_norm = 0
+
+        if max_len == x_len:
+            used_index = 0
+            x_norm = 1
+        if max_len == y_len:
+            used_index = 1
+            y_norm = 1
+        if max_len == z_len:
+            used_index = 2
+            z_norm = 1
+
+        normal = np.array([x_norm, y_norm, z_norm])
+        scale = 0.999 if bounding_box[0][used_index] < 0 else 1.001
         extent = bounding_box[0] * normal * scale
         slice_plane = prim.Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
         spacing = self.work_piece.thickness
-        length = int(abs(bounding_box[1][0] - bounding_box[0][0]) / spacing) + 1
+        length = int(abs(bounding_box[1][used_index] - bounding_box[0][used_index]) / spacing) + 1
         section_list = cut_stl.create_cross_section_pairs(wall_thickness=wall_thickness, origin_plane=slice_plane,
                                                           spacing=spacing, number_sections=length,
                                                           open_nose=False, open_tail=True)
@@ -51,7 +71,12 @@ class SliceManager(object):
         for ind, section in enumerate(section_list):
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=320)
-            section.plot_subdivide_debug(subdivisions, radius=100)
+            prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C1', scatter=False)
+            prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
+            if section.section1.get_path_hole() is not None:
+                prim.GeometricFunctions.plot_path(section.section1.get_path_hole(), color='C3', scatter=False)
+                prim.GeometricFunctions.plot_path(section.section2.get_path_hole(), color='C4', scatter=False)
+            plt.legend(['Section 1 outer', 'Section 2 outer', 'Section 1 inner', 'Section 2 inner'])
             plt.axis('equal')
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_Cross_Section_orig_%s.png' % (name, ind)))
             plt.show()
@@ -60,13 +85,18 @@ class SliceManager(object):
         for ind, section in enumerate(subdivided_list):
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=320)
-            section.plot_subdivide_debug(3, radius=40)
+            prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C1', scatter=False)
+            prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
+            section.apply_kerf(kerf=self.wire_cutter.kerf, max_kerf=self.wire_cutter.max_kerf)
+            prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C3', scatter=False)
+            prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C4', scatter=False)
+            plt.legend(['Section 1 orig', 'Section 2 orig', 'Section 1 kerf', 'Section 2 kerf'])
             plt.axis('equal')
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_subdivisions_%s.png' % (name, ind)))
             plt.show()
 
         cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, self.work_piece,
-                                                                              section_gap=10,
+                                                                              section_gap=4,
                                                                               wire_cutter=self.wire_cutter,
                                                                               output_dir=os.path.join(output_dir,
                                                                                                       'plots'))
@@ -92,9 +122,11 @@ class SliceManager(object):
             plt.show()
 
     def wing_to_gcode(self, wing, output_dir):
-        self.create_folders(output_dir)
+        self.create_folders(output_dir, wing.name)
         pass
 
-    def create_folders(self, output_dir):
-        if not os.path.exists(os.path.join(output_dir, 'plots')):
-            os.mkdir(os.path.join(output_dir, 'plots'))
+    def create_folders(self, output_dir, name):
+        if not os.path.exists(os.path.join(output_dir, name)):
+            os.mkdir(os.path.join(output_dir, name))
+        if not os.path.exists(os.path.join(output_dir, name, 'plots')):
+            os.mkdir(os.path.join(output_dir, name, 'plots'))

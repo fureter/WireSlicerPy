@@ -8,8 +8,8 @@ from abc import ABC
 from collections import namedtuple
 
 import matplotlib.animation as animation
-import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+import matplotlib.pyplot as plt
 import numpy as np
 
 import geometry.spatial_manipulation as sm
@@ -62,6 +62,9 @@ class Point():
             return Point(self._coord[0] + other, self._coord[1] + other, self._coord[2] + other)
         else:
             raise TypeError('Error: Point addition does not support Type: %s' % type(other))
+
+    def __neg__(self):
+        return Point(-self._coord[0], -self._coord[1], -self._coord[2])
 
     def __sub__(self, other):
         if isinstance(other, Point):
@@ -331,7 +334,7 @@ class Path(Section):
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Plane():
+class Plane(object):
     def __init__(self, x0, y0, z0, a, b, c):
         self._x0 = x0
         self._y0 = y0
@@ -629,7 +632,7 @@ class Spline(Section):
         raise AttributeError('T(%s) out of range for the given intervals(%s)' % (t, self.segments))
 
 
-class GeometricFunctions():
+class GeometricFunctions(object):
     @staticmethod
     def plot_potential_field(x_mesh, y_mesh, potential_field, output_dir, index):
         plt.figure(figsize=(16, 9), dpi=160)
@@ -649,51 +652,49 @@ class GeometricFunctions():
         plt.savefig(os.path.join(output_dir, 'potential_field_%s.png' % index))
 
     @staticmethod
-    def plot_cross_sections_on_workpiece(state_dict, work_piece, output_dir, index=0, new_fig=True):
+    def plot_cross_sections_on_workpiece(state_dict, work_piece, output_dir, num_sections, index=0):
         """
 
         :param state_dict:
         :param WorkPiece work_piece:
         :return:
         """
-        if new_fig:
-            plt.figure(figsize=(16, 9), dpi=160)
-        plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0], 'g')
-
         x = list()
         y = list()
-        u = list()
-        v = list()
+        for cut in range(num_sections):
+            plt.close('all')
+            plt.figure(figsize=(16, 9), dpi=320)
+            plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0],
+                     'g')
+            for ind in range(0, len(state_dict)):
+                if state_dict[ind]['cut'] == cut+1:
+                    path_1 = copy.deepcopy(state_dict[ind]['section'].section1.get_path())
+                    path_2 = copy.deepcopy(state_dict[ind]['section'].section2.get_path())
+                    collider_path1 = copy.deepcopy(state_dict[ind]['collider1'].get_path())
+                    collider_path2 = copy.deepcopy(state_dict[ind]['collider2'].get_path())
 
-        for ind in range(0, len(state_dict)):
-            path_1 = copy.deepcopy(state_dict[ind]['section'].section1.get_path())
-            path_2 = copy.deepcopy(state_dict[ind]['section'].section2.get_path())
-            collider_path = copy.deepcopy(state_dict[ind]['collider'].get_path())
+                    GeometricFunctions.move_cross_section_from_state_dict(
+                        path_1=path_1,
+                        path_2=path_2,
+                        dict_entry=state_dict[ind])
 
-            GeometricFunctions.move_cross_section_from_state_dict(
-                path_1=path_1,
-                path_2=path_2,
-                dict_entry=state_dict[ind])
+                    bb1 = GeometricFunctions.get_bounding_box_from_path(collider_path1 + collider_path2)
 
-            bb1 = GeometricFunctions.get_bounding_box_from_path(collider_path)
+                    plt.plot([bb1[0][0], bb1[0][0], bb1[1][0], bb1[1][0], bb1[0][0]],
+                             [bb1[0][1], bb1[1][1], bb1[1][1], bb1[0][1], bb1[0][1]], 'k')
 
-            plt.plot([bb1[0][0], bb1[0][0], bb1[1][0], bb1[1][0], bb1[0][0]],
-                     [bb1[0][1], bb1[1][1], bb1[1][1], bb1[0][1], bb1[0][1]], 'k')
+                    GeometricFunctions.plot_path(path_1, 'r', scatter=False)
+                    GeometricFunctions.plot_path(path_2, 'b', scatter=False)
+                    GeometricFunctions.plot_path(collider_path1, 'm', scatter=False)
+                    GeometricFunctions.plot_path(collider_path2, 'c', scatter=False)
+                    x.append(state_dict[ind]['x_pos'])
+                    y.append(state_dict[ind]['y_pos'])
 
-            GeometricFunctions.plot_path(path_1, 'r', scatter=False)
-            GeometricFunctions.plot_path(path_2, 'b', scatter=False)
-            GeometricFunctions.plot_path(collider_path, 'm', scatter=False)
-            x.append(state_dict[ind]['x_pos'])
-            y.append(state_dict[ind]['y_pos'])
-            # u.append(state_dict[ind]['u'])
-            # v.append(state_dict[ind]['v'])
+                    txt = plt.text(state_dict[ind]['x_pos'], state_dict[ind]['y_pos'], s='C%s' % (ind + 1),
+                                   fontsize='small')
+                    txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
 
-            txt = plt.text(state_dict[ind]['x_pos'], state_dict[ind]['y_pos'], s='C%s' % (ind + 1),
-                           fontsize='small')
-            txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
-
-        # plt.quiver(x, y, u, v)
-        plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_%s.png' % index))
+            plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_sheet%s_%s.png' % ((cut+1), index)))
 
     @staticmethod
     def bounding_boxes_intersect(bb1, bb2):
@@ -707,8 +708,14 @@ class GeometricFunctions():
 
     @staticmethod
     def move_cross_section_from_state_dict(path_1, path_2, dict_entry):
-        GeometricFunctions.center_path(path_1)
-        GeometricFunctions.center_path(path_2)
+        center = Point(0, 0, 0)
+        for point in path_1:
+            center += point
+        for point in path_2:
+            center += point
+        center /= (len(path_1) + len(path_2))
+        sm.PointManip.Transform.translate(path_1, -center)
+        sm.PointManip.Transform.translate(path_2, -center)
 
         sm.PointManip.Transform.rotate(path_1, [0, 0, np.deg2rad(dict_entry['rot'])])
         sm.PointManip.Transform.rotate(path_2, [0, 0, np.deg2rad(dict_entry['rot'])])
@@ -999,13 +1006,14 @@ class GeometricFunctions():
         original_curve = copy.deepcopy(path)
         for ind in range(0, divisions):
             path = GeometricFunctions.parallel_curve(path, offset_scale / divisions, dir)
-            num_intersections = GeometricFunctions.number_of_intersections_in_path(path)
-            logger.debug('Found %s intersections in path', num_intersections)
+        #     num_intersections = GeometricFunctions.number_of_intersections_in_path(path)
+        #     logger.debug('Found %s intersections in path', num_intersections)
+        #
 
-        intersections = GeometricFunctions.get_all_intersection_points(path)
         path = GeometricFunctions.clean_intersections(path, original_curve, offset_scale)
 
         if add_leading_edge:
+            intersections = GeometricFunctions.get_all_intersection_points(path)
             if dir == 0:
                 path.insert(0, origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
                 path.append(origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
@@ -1024,7 +1032,7 @@ class GeometricFunctions():
         return path
 
     @staticmethod
-    def parallel_curve(path, offset_scale, dir, plot_debug=False):
+    def parallel_curve(path, offset_scale, direction, plot_debug=False):
         logger = logging.getLogger(__name__)
         offset_path = list()
 
@@ -1042,7 +1050,7 @@ class GeometricFunctions():
                      [path[0]['y'], path[0]['y'] + norm2['y'] * offset_scale],
                      'y-')
         vec = path[0] - center
-        norm = norm1 if dir == 0 else norm2
+        norm = norm1 if direction == 0 else norm2
         offset_path.append(path[0] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
 
         for ind in range(1, len(path)-1):
@@ -1054,7 +1062,7 @@ class GeometricFunctions():
                 plt.plot([path[ind]['x'], path[ind]['x'] + norm2['x'] * offset_scale],
                          [path[ind]['y'], path[ind]['y'] + norm2['y'] * offset_scale],
                          'y-')
-            norm = norm1 if dir == 0 else norm2
+            norm = norm1 if direction == 0 else norm2
             offset_path.append(path[ind] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
 
         norm1, norm2 = GeometricFunctions.normal_vector(path[-2], path[-1], path[0])
@@ -1066,7 +1074,7 @@ class GeometricFunctions():
                      [path[-1]['y'], path[-1]['y'] + norm2['y'] * offset_scale],
                      'y-')
         vec = path[-1] - center
-        norm = norm1 if dir == 0 else norm2
+        norm = norm1 if direction == 0 else norm2
         offset_path.append(path[-1] + Point(norm['x'] * offset_scale, norm['y'] * offset_scale, 0))
         #offset_path.append(path[0] + Point(-offset_scale, 0, 0))
 

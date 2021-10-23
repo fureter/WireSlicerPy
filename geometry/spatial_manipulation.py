@@ -205,8 +205,9 @@ class PointManip():
     @staticmethod
     def _complex_polar_sort(points):
         sorted_points = list()
-        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=15, points=points)
-        tol = 10.0
+        # TODO change to input variables
+        mid_lines = PointManip.get_mid_lines_from_closed_path(segments=30, points=points)
+        tol = 15.0
         step = -tol / 2
         check_angle = 90
         left_most_x = 10000000
@@ -237,7 +238,7 @@ class PointManip():
 
         # Start the primary sorting loop. Sorting will handle the top segment of the curve first by utilizing reference
         # lines that follow the midpoint of the cross section
-        for indx in range(2, len(points)):
+        for ind in range(0, len(points)):
             curr_point = sorted_points[-1]
             angle_dict = dict()
             for point in points:
@@ -259,6 +260,11 @@ class PointManip():
 
                 next_angle = next_angle_cw if dist_cw < dist_ccw else next_angle_ccw
                 sorted_points.append(angle_dict[next_angle])
+            elif next_angle_ccw is not None:
+                sorted_points.append(angle_dict[next_angle_ccw])
+            elif next_angle_cw is not None:
+                sorted_points.append(angle_dict[next_angle_cw])
+
         return sorted_points
 
     @staticmethod
@@ -319,8 +325,6 @@ class PointManip():
             dot = vec_1 * vec_2
             inside = np.clip(dot/(mag_1*mag_2), -1, 1)
             ang = np.rad2deg(np.arccos(inside))
-            logger.debug('vec_1: %s, \nvec_2: %s\nmag_1: %s\nmag_2: %s\ndot: %s\nang: %s\ninside: %s\n', vec_1, vec_2,
-                         mag_1, mag_2, dot, ang, inside)
             ang = ang + 360 if ang < 0 else ang
             if abs(ang) <= ang_thresh or abs(360-ang) <= ang_thresh:
                 volitile_points.append(ind)
@@ -352,7 +356,7 @@ class PointManip():
                                                                       (closest_points[0][0]['y'] +
                                                                        closest_points[0][1]['y']) / 2,
                                                                       closest_points[0][0]['z']))
-        # line.plot()
+        line.plot()
         lines.append(line)
         for indx in range(0, segments - 2):
             left = prim.Point(closest_points[indx][0]['x'],
@@ -365,7 +369,7 @@ class PointManip():
                                 closest_points[indx + 1][1]['y']) / 2,
                                closest_points[indx + 1][0]['z'])
             line = prim.Line.line_from_points(left, right)
-            # line.plot()
+            line.plot()
             lines.append(line)
 
         last = prim.Point(closest_points[-1][0]['x'],
@@ -373,7 +377,7 @@ class PointManip():
                            closest_points[-1][1]['y']) / 2,
                           closest_points[-1][0]['z'])
         line = prim.Line.line_from_points(last, right_most_point)
-        # line.plot()
+        line.plot()
         lines.append(line)
 
         return lines
