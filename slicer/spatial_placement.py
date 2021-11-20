@@ -15,6 +15,10 @@ class SpatialPlacement:
     MAX_VEL = 10000.0
     MIN_DT = 1e-3
 
+    NO_OVERLAP = 0
+    ABOVE = 1
+    BELOW = 2
+
     def __init__(self, work_piece, wire_cutter, vert_spacing=1):
         self.logger = logging.getLogger(__name__)
         self.state_dict = dict()
@@ -33,14 +37,6 @@ class SpatialPlacement:
             path_1 = section.get_path()[0]
             path_2 = section.get_path()[1]
 
-            # plt.close('all')
-            # plt.figure(figsize=(16, 9), dpi=320)
-            # prim.GeometricFunctions.plot_path(path_1, color='C1')
-            # prim.GeometricFunctions.plot_path(path_2, color='C2')
-            # plt.axis('equal')
-            # plt.savefig(os.path.join(output_dir, 'Subdivide_before_center_%s.png' % (index)))
-            # plt.show()
-
             center = prim.Point(0, 0, 0)
             for point in path_1:
                 center += point
@@ -49,14 +45,6 @@ class SpatialPlacement:
             center /= (len(path_1) + len(path_2))
             spma.PointManip.Transform.translate(path_1, -center)
             spma.PointManip.Transform.translate(path_2, -center)
-
-            # plt.close('all')
-            # plt.figure(figsize=(16, 9), dpi=320)
-            # prim.GeometricFunctions.plot_path(path_1, color='C1')
-            # prim.GeometricFunctions.plot_path(path_2, color='C2')
-            # plt.axis('equal')
-            # plt.savefig(os.path.join(output_dir, 'Subdivide_after_center_%s.png' % (index)))
-            # plt.show()
 
             collider1, collider2 = SpatialPlacement.create_section_collider(section, distance_between_sections)
             bb = prim.GeometricFunctions.get_bounding_box_from_path(collider1.get_path() + collider2.get_path())
@@ -80,26 +68,17 @@ class SpatialPlacement:
             return (bb_i[1][0] - bb_i[0][0]) * (bb_i[1][1] - bb_i[0][1])
 
         ordered_state_indexes = sorted(self.state_dict, key=collider_size)
-        ordered_state_dict = dict()
-
-        index = 0
-        for ind in ordered_state_indexes:
-            ordered_state_dict[index] = self.state_dict[ind]
-            index += 1
 
         self.calculate_initial_rotation()
 
         r_id = 0
-
-        prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
-                                                                 num_sections=self.num_sections, index='initial')
 
         last_pos_x = 0
         last_pos_y = self.work_piece.height
         indx = 0
         time_out = 10000
 
-        for ind in self.state_dict:
+        for ind in reversed(ordered_state_indexes):
             item = self.state_dict[ind]
             placed = False
             iterations = 0
@@ -194,11 +173,12 @@ class SpatialPlacement:
                     self.r_index.append(rtree.index.Index())
                 else:
                     iterations += 1
-            prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
-                                                                     index='%s' % indx, num_sections=self.num_sections)
+            # prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
+            #                                                          index='%s' % indx, num_sections=self.num_sections)
             indx += 1
-        prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
-                                                                 index='final', num_sections=self.num_sections)
+        for ind in range(self.num_sections):
+            prim.GeometricFunctions.plot_cross_sections_on_workpiece(self.state_dict, self.work_piece, output_dir,
+                                                                     index='final', num_sections=ind+1)
         self.apply_state_dict()
 
     def apply_state_dict(self):
@@ -281,16 +261,16 @@ class SpatialPlacement:
                     min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
                     max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
 
-                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[min_ind]['x'],
-                                                                                     section_1[min_ind]['y'], z_1)))
-                    logger.debug('ind: %s, len: %s min_ind: %s size section2: %s', ind, len(cut_list_2), min_ind,
-                                 len(section_2))
-                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[min_ind]['x'],
-                                                                                     section_2[min_ind]['y'], z_2)))
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1,
+                                                            prim.Point(section_1[min_ind]['x'], section_1[min_ind]['y'],
+                                                                       z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2,
+                                                            prim.Point(section_2[min_ind]['x'], section_2[min_ind]['y'],
+                                                                       z_2)))
 
                     prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1[ind], cut_list_2[ind], False,
-                                                                              section_1,
-                                                                              section_2, z_1, z_2)
+                                                                              section_1, section_2, z_1, z_2)
+
                     if prev_point_1 is None:
                         prev_point_1 = prim.Point(section_1[max_ind]['x'],
                                                   section_1[max_ind]['y'], z_1)
@@ -334,20 +314,38 @@ class SpatialPlacement:
             cut_list_1.append(list())
             cut_list_2.append(list())
             section_order_list = self._get_section_order(ind)
+
+            overlapped_items = self._get_overlap_items(ind)
+            overlapped_items = self._clean_overlap_dict(overlapped_items, ind)
+            for entry in overlapped_items.values():
+                for item in entry['above']:
+                    for y_axis in section_order_list:
+                        if item in y_axis:
+                            y_axis.remove(item)
+                for item in entry['below']:
+                    for y_axis in section_order_list:
+                        if item in y_axis:
+                            y_axis.remove(item)
+
             prev_point_1 = prim.Point(0, 0, z_1)
             prev_point_2 = prim.Point(0, 0, z_2)
             for y_axis in section_order_list:
                 max_ind = prim.GeometricFunctions.get_index_max_coord(
                     self.state_dict[y_axis[0]]['section'].section1.get_path(), 'y')
-                y_start = self.state_dict[y_axis[0]]['section'].section1.get_path()[max_ind]['y']
+                y_start = max(self.state_dict[y_axis[0]]['section'].section1.get_path()[max_ind]['y'],
+                              self.state_dict[y_axis[0]]['section'].section2.get_path()[max_ind]['y'])
                 cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1), fast_cut=True))
                 cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2), fast_cut=True))
                 prev_point_1 = prim.Point(0, y_start, z_1)
                 prev_point_2 = prim.Point(0, y_start, z_2)
-                for x_axis in y_axis:
+                for index, x_axis in enumerate(y_axis):
                     section = self.state_dict[x_axis]['section']
                     section_1 = section.section1.get_path()
                     section_2 = section.section2.get_path()
+                    bb = self.state_dict[x_axis]['bb']
+                    bb_next = None
+                    if index+1 < len(y_axis):
+                        bb_next = self.state_dict[y_axis[index+1]]['bb']
 
                     err_prompt = 'Error Sections do not have the same number of points S1 %s, S2 %s' % \
                                  (len(section_1), len(section_2))
@@ -355,25 +353,11 @@ class SpatialPlacement:
 
                     max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'y')
 
-                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
-                                                                                     section_1[max_ind][
-                                                                                         'y'] + self.vert_spacing,
-                                                                                     z_1)))
-                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[max_ind]['x'],
-                                                                                     section_2[max_ind][
-                                                                                         'y'] + self.vert_spacing,
-                                                                                     z_2)))
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb[0][0], bb[1][1], z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb[0][0], bb[1][1], z_2)))
 
-                    prev_point_1 = prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'] + self.vert_spacing, z_1)
-                    prev_point_2 = prim.Point(section_2[max_ind]['x'], section_2[max_ind]['y'] + self.vert_spacing, z_2)
-
-                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
-                                                                                     section_1[max_ind]['y'], z_1)))
-                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[max_ind]['x'],
-                                                                                     section_2[max_ind]['y'], z_2)))
-
-                    prev_point_1, prev_point_2 = SpatialPlacement.add_section_vert(cut_list_1[ind], cut_list_2[ind],
-                                                                                   section_1, section_2, z_1, z_2)
+                    prev_point_1 = prim.Point(bb[0][0], bb[1][1], z_1)
+                    prev_point_2 = prim.Point(bb[0][0], bb[1][1], z_2)
 
                     cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
                                                                                      section_1[max_ind][
@@ -387,12 +371,95 @@ class SpatialPlacement:
                     prev_point_1 = prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'] + self.vert_spacing, z_1)
                     prev_point_2 = prim.Point(section_2[max_ind]['x'], section_2[max_ind]['y'] + self.vert_spacing, z_2)
 
-                for x_axis in reversed(y_axis):
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1,
+                                                            prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'],
+                                                                       z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2,
+                                                            prim.Point(section_2[max_ind]['x'], section_2[max_ind]['y'],
+                                                                       z_2)))
+
+                    if x_axis in overlapped_items:
+                        prev_point_1, prev_point_2 = self.add_section_vert_w_overlap(cut_list_1[ind], cut_list_2[ind],
+                                                                                     z_1, z_2, x_axis, overlapped_items)
+                    else:
+                        prev_point_1, prev_point_2 = SpatialPlacement.add_section_vert(cut_list_1[ind], cut_list_2[ind],
+                                                                                       section_1, section_2, z_1, z_2)
+
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
+                                                                                     section_1[max_ind][
+                                                                                         'y'] + self.vert_spacing,
+                                                                                     z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(section_2[max_ind]['x'],
+                                                                                     section_2[max_ind][
+                                                                                         'y'] + self.vert_spacing,
+                                                                                     z_2)))
+
+                    prev_point_1 = prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'] + self.vert_spacing, z_1)
+                    prev_point_2 = prim.Point(section_2[max_ind]['x'], section_2[max_ind]['y'] + self.vert_spacing, z_2)
+
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb[1][0], bb[1][1], z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb[1][0], bb[1][1], z_2)))
+
+                    prev_point_1 = prim.Point(bb[1][0], bb[1][1], z_1)
+                    prev_point_2 = prim.Point(bb[1][0], bb[1][1], z_2)
+
+                    if bb_next is not None:
+                        p1 = prim.Point(bb[1][0], bb[1][1], z_1)
+                        p2 = prim.Point(bb_next[0][0], bb[1][1], z_1)
+                        intersections = self.find_intersections_between_two_points(p1, p2, ind+1, x_axis, y_axis[index+1])
+                        if len(intersections) > 0:
+                            intersect_dict = dict()
+                            for intersection in intersections:
+                                intersect_dict[self.state_dict[intersection]['x_pos']] = intersection
+                            for intersection in sorted(intersect_dict):
+                                bb_curr = self.state_dict[intersect_dict[intersection]]['bb']
+                                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_curr[0][0],
+                                                                                                 bb_curr[0][1], z_1)))
+                                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_curr[0][0],
+                                                                                                 bb_curr[0][1], z_2)))
+
+                                prev_point_1 = prim.Point(bb_curr[0][0], bb_curr[0][1], z_1)
+                                prev_point_2 = prim.Point(bb_curr[0][0], bb_curr[0][1], z_2)
+
+                                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_curr[1][0],
+                                                                                                 bb_curr[0][1], z_1)))
+                                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_curr[1][0],
+                                                                                                 bb_curr[0][1], z_2)))
+
+                                prev_point_1 = prim.Point(bb_curr[1][0], bb_curr[0][1], z_1)
+                                prev_point_2 = prim.Point(bb_curr[1][0], bb_curr[0][1], z_2)
+
+                        cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_next[0][0],
+                                                                                         prev_point_1['y'], z_1)))
+                        cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_next[0][0],
+                                                                                         prev_point_2['y'], z_2)))
+
+                        prev_point_1 = prim.Point(bb_next[0][0], prev_point_1['y'], z_1)
+                        prev_point_2 = prim.Point(bb_next[0][0], prev_point_2['y'], z_2)
+
+                        cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_next[0][0], bb_next[1][1], z_1)))
+                        cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_next[0][0], bb_next[1][1], z_2)))
+
+                        prev_point_1 = prim.Point(bb_next[0][0], bb_next[1][1], z_1)
+                        prev_point_2 = prim.Point(bb_next[0][0], bb_next[1][1], z_2)
+
+                for index, x_axis in enumerate(reversed(y_axis)):
                     section = self.state_dict[x_axis]['section']
                     section_1 = section.section1.get_path()
                     section_2 = section.section2.get_path()
+                    bb = self.state_dict[x_axis]['bb']
+                    bb_next = None
+                    if (len(y_axis)-1 - index) - 1 >= 0:
+                        bb_next = self.state_dict[y_axis[(len(y_axis)-1 - index) - 1]]['bb']
 
                     max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'y')
+
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb[1][0], bb[1][1], z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb[1][0], bb[1][1], z_2)))
+
+                    prev_point_1 = prim.Point(bb[1][0], bb[1][1], z_1)
+                    prev_point_2 = prim.Point(bb[1][0], bb[1][1], z_2)
+
                     cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(section_1[max_ind]['x'],
                                                                                      section_1[max_ind][
                                                                                          'y'] + self.vert_spacing,
@@ -405,6 +472,64 @@ class SpatialPlacement:
                     prev_point_1 = prim.Point(section_1[max_ind]['x'], section_1[max_ind]['y'] + self.vert_spacing, z_1)
                     prev_point_2 = prim.Point(section_2[max_ind]['x'], section_2[max_ind]['y'] + self.vert_spacing, z_2)
 
+                    cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb[0][0], bb[1][1], z_1)))
+                    cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb[0][0], bb[1][1], z_2)))
+
+                    prev_point_1 = prim.Point(bb[0][0], bb[1][1], z_1)
+                    prev_point_2 = prim.Point(bb[0][0], bb[1][1], z_2)
+
+                    if bb_next is not None:
+                        # cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb[0][0], bb_next[1][1], z_1)))
+                        # cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb[0][0], bb_next[1][1], z_2)))
+                        #
+                        # prev_point_1 = prim.Point(bb[0][0], bb_next[1][1], z_1)
+                        # prev_point_2 = prim.Point(bb[0][0], bb_next[1][1], z_2)
+
+                        p1 = prim.Point(bb[0][0], bb_next[1][1], z_1)
+                        p2 = prim.Point(bb_next[1][0], bb_next[1][1], z_1)
+                        intersections = self.find_intersections_between_two_points(p1, p2, ind+1, x_axis, y_axis[(len(y_axis)-1 - index) - 1])
+                        if len(intersections) > 0:
+                            intersect_dict = dict()
+                            for intersection in intersections:
+                                intersect_dict[self.state_dict[intersection]['x_pos']] = intersection
+                            for intersection in sorted(intersect_dict.keys(), reverse=True):
+                                bb_curr = self.state_dict[intersect_dict[intersection]]['bb']
+
+                                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(prev_point_1['x'],
+                                                                                                 bb_curr[0][1], z_1)))
+                                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(prev_point_1['x'],
+                                                                                                 bb_curr[0][1], z_2)))
+
+                                prev_point_1 = prim.Point(prev_point_1['x'], bb_curr[0][1], z_1)
+                                prev_point_2 = prim.Point(prev_point_1['x'], bb_curr[0][1], z_2)
+
+                                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_curr[1][0],
+                                                                                                 bb_curr[0][1], z_1)))
+                                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_curr[1][0],
+                                                                                                 bb_curr[0][1], z_2)))
+
+                                prev_point_1 = prim.Point(bb_curr[1][0], bb_curr[0][1], z_1)
+                                prev_point_2 = prim.Point(bb_curr[1][0], bb_curr[0][1], z_2)
+
+                                cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_curr[0][0],
+                                                                                                 bb_curr[0][1], z_1)))
+                                cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_curr[0][0],
+                                                                                                 bb_curr[0][1], z_2)))
+
+                                prev_point_1 = prim.Point(bb_curr[0][0], bb_curr[0][1], z_1)
+                                prev_point_2 = prim.Point(bb_curr[0][0], bb_curr[0][1], z_2)
+
+                        cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(prev_point_1['x'], bb_next[1][1], z_1)))
+                        cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(prev_point_2['x'], bb_next[1][1], z_2)))
+
+                        prev_point_1 = prim.Point(prev_point_1['x'], bb_next[1][1], z_1)
+                        prev_point_2 = prim.Point(prev_point_2['x'], bb_next[1][1], z_2)
+
+                        cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(bb_next[1][0], bb_next[1][1], z_1)))
+                        cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(bb_next[1][0], bb_next[1][1], z_2)))
+
+                        prev_point_1 = prim.Point(bb_next[1][0], bb_next[1][1], z_1)
+                        prev_point_2 = prim.Point(bb_next[1][0], bb_next[1][1], z_2)
 
                 cut_list_1[ind].append(prim.SectionLink(prev_point_1, prim.Point(0, y_start, z_1)))
                 cut_list_2[ind].append(prim.SectionLink(prev_point_2, prim.Point(0, y_start, z_2)))
@@ -414,10 +539,38 @@ class SpatialPlacement:
 
         return cut_list_1, cut_list_2
 
+    def find_intersections_between_two_points(self, point1, point2, curr_cut, ind1, ind2):
+        """
+        Returns a list of indexes in the state_dict that have bounding boxes intersecting the line formed by point1 to
+        point2.
+
+        :param point1:
+        :param point2:
+        :param curr_cut:
+        :param ind1:
+        :param ind2:
+        :return:
+        """
+
+        line = prim.Line.line_from_points(point1, point2)
+        intersect_list = list()
+        for ind in self.state_dict:
+            if curr_cut == self.state_dict[ind]['cut'] and ind != ind1 and ind != ind2:
+                bb = self.state_dict[ind]['bb']
+                point_min_y = prim.Point(bb[0][0], bb[0][1], point1['z'])
+                point_max_y = prim.Point(bb[0][0], bb[1][1], point1['z'])
+                vert_line = prim.Line.line_from_points(point_min_y, point_max_y)
+                intersects, _ = vert_line.intersects(line)
+                if intersects:
+                    y_avg = sum([point1['y'], point2['y']])/2.0
+                    if abs(y_avg - point_max_y['y']) > 15.0 or abs(y_avg - point_min_y['y']) > 10.0:
+                        intersect_list.append(ind)
+        return intersect_list
+
     @staticmethod
-    def add_section(cut_list_1, cut_list_2, reverse_dir, section_1, section_2, z_1, z_2):
-        min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'x')
-        max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'x')
+    def add_section(cut_list_1, cut_list_2, reverse_dir, section_1, section_2, z_1, z_2, dimension='x'):
+        min_ind = prim.GeometricFunctions.get_index_min_coord(section_1, dimension)
+        max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, dimension)
         point1 = None
         point2 = None
         if min_ind > max_ind:
@@ -455,19 +608,139 @@ class SpatialPlacement:
         return point1, point2
 
     @staticmethod
-    def add_section_vert(cut_list_1, cut_list_2, section_1, section_2, z_1, z_2):
-        max_ind = prim.GeometricFunctions.get_index_max_coord(section_1, 'y')
-        path1 = prim.Path(section_1[max_ind:] + section_1[0:max_ind + 1])
-        path2 = prim.Path(section_2[max_ind:] + section_2[0:max_ind + 1])
+    def add_section_vert(cut_list_1, cut_list_2, section_1, section_2, z_1, z_2, bottom=False):
+        ind = prim.GeometricFunctions.get_index_min_coord(section_1, 'y') if bottom else \
+            prim.GeometricFunctions.get_index_max_coord(section_1, 'y')
+        path1 = prim.Path(section_1[ind:] + section_1[0:ind + 1])
+        path2 = prim.Path(section_2[ind:] + section_2[0:ind + 1])
         cut_list_1.append(comp.CrossSection(path1))
         cut_list_2.append(comp.CrossSection(path2))
-        point1 = section_1[max_ind]
-        point2 = section_2[max_ind]
+        point1 = section_1[ind]
+        point2 = section_2[ind]
 
         if point1:
             point1['z'] = z_1
             point2['z'] = z_2
         return point1, point2
+
+    def add_section_vert_w_overlap(self, cut_list_1, cut_list_2, z_1, z_2, entry, overlap):
+        """
+        Handles Creating cutpaths for CrossSections that have other vertical overlapping CrossSections.
+
+        :param cut_list_1:
+        :param cut_list_2:
+        :param z_1:
+        :param z_2:
+        :param entry:
+        :param overlap:
+        :return:
+        """
+        main_section_1 = self.state_dict[entry]['section'].section1.get_path()
+        main_section_2 = self.state_dict[entry]['section'].section2.get_path()
+        min_ind = prim.GeometricFunctions.get_index_min_coord(main_section_1, 'y')
+
+        # Add the cutpath going from the top to the bottom of the primary section for the overlap
+        prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1, cut_list_2, True, main_section_1,
+                                                                  main_section_2, z_1, z_2, dimension='y')
+
+        for item in overlap[entry]['below']:
+            section_tmp = self.state_dict[item]['section']
+            section_tmp1 = section_tmp.section1.get_path()
+            section_tmp2 = section_tmp.section2.get_path()
+            max_ind = prim.GeometricFunctions.get_index_max_coord(section_tmp1, 'y')
+
+            # Move from the bottom of the primary CrossSection to the next overlapped CrossSection + Vert spacing
+            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_tmp1[max_ind]['x'],
+                                                                        section_tmp1[max_ind]['y'] + self.vert_spacing,
+                                                                        z_1)))
+            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_tmp2[max_ind]['x'],
+                                                                        section_tmp2[max_ind]['y'] + self.vert_spacing,
+                                                                        z_2)))
+            # Reset prev Points
+            prev_point_1 = prim.Point(section_tmp1[max_ind]['x'], section_tmp1[max_ind]['y'] + self.vert_spacing, z_1)
+            prev_point_2 = prim.Point(section_tmp2[max_ind]['x'], section_tmp2[max_ind]['y'] + self.vert_spacing, z_2)
+
+            # Move down from the vertically offset point to the Overlapped CrossSection
+            cut_list_1.append(
+                prim.SectionLink(prev_point_1, prim.Point(section_tmp1[max_ind]['x'], section_tmp1[max_ind]['y'], z_1)))
+            cut_list_2.append(
+                prim.SectionLink(prev_point_2, prim.Point(section_tmp2[max_ind]['x'], section_tmp2[max_ind]['y'], z_2)))
+
+            # Cut the entirety of the Overlapped CrossSection
+            prev_point_1, prev_point_2 = SpatialPlacement.add_section_vert(cut_list_1, cut_list_2, section_tmp1,
+                                                                           section_tmp2, z_1, z_2)
+
+            # Move from the top of the overlapped CrossSection up to the vertically offset section
+            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_tmp1[max_ind]['x'],
+                                                                        section_tmp1[max_ind]['y'] + self.vert_spacing,
+                                                                        z_1)))
+            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_tmp2[max_ind]['x'],
+                                                                        section_tmp2[max_ind]['y'] + self.vert_spacing,
+                                                                        z_2)))
+            # Reset the prev points
+            prev_point_1 = prim.Point(section_tmp1[max_ind]['x'], section_tmp1[max_ind]['y'] + self.vert_spacing, z_1)
+            prev_point_2 = prim.Point(section_tmp2[max_ind]['x'], section_tmp2[max_ind]['y'] + self.vert_spacing, z_2)
+
+        # Return to the bottom of the primary section
+        cut_list_1.append(
+            prim.SectionLink(prev_point_1, prim.Point(main_section_1[min_ind]['x'], main_section_1[min_ind]['y'], z_1)))
+        cut_list_2.append(
+            prim.SectionLink(prev_point_2, prim.Point(main_section_2[min_ind]['x'], main_section_2[min_ind]['y'], z_2)))
+
+        # Return from the bottom of the main section to the top to resume the rest of the cutpath generation
+        prev_point_1, prev_point_2 = SpatialPlacement.add_section(cut_list_1, cut_list_2, False, main_section_1,
+                                                                  main_section_2, z_1, z_2, dimension='y')
+
+        for item in overlap[entry]['above']:
+            section_tmp = self.state_dict[item]['section']
+            section_tmp1 = section_tmp.section1.get_path()
+            section_tmp2 = section_tmp.section2.get_path()
+            max_ind = prim.GeometricFunctions.get_index_max_coord(section_tmp1, 'y')
+            min_ind = prim.GeometricFunctions.get_index_min_coord(section_tmp1, 'y')
+
+            # Move from the bottom of the primary CrossSection to the next overlapped CrossSection + Vert spacing
+            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_tmp1[min_ind]['x'],
+                                                                        section_tmp1[min_ind]['y'] - self.vert_spacing,
+                                                                        z_1)))
+            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_tmp2[min_ind]['x'],
+                                                                        section_tmp2[min_ind]['y'] - self.vert_spacing,
+                                                                        z_2)))
+            # Reset prev Points
+            prev_point_1 = prim.Point(section_tmp1[min_ind]['x'], section_tmp1[min_ind]['y'] - self.vert_spacing, z_1)
+            prev_point_2 = prim.Point(section_tmp2[min_ind]['x'], section_tmp2[min_ind]['y'] - self.vert_spacing, z_2)
+
+            # Move down from the vertically offset point to the Overlapped CrossSection
+            cut_list_1.append(
+                prim.SectionLink(prev_point_1, prim.Point(section_tmp1[min_ind]['x'], section_tmp1[min_ind]['y'], z_1)))
+            cut_list_2.append(
+                prim.SectionLink(prev_point_2, prim.Point(section_tmp2[min_ind]['x'], section_tmp2[min_ind]['y'], z_2)))
+
+            # Cut the entirety of the Overlapped CrossSection
+            prev_point_1, prev_point_2 = SpatialPlacement.add_section_vert(cut_list_1, cut_list_2, section_tmp1,
+                                                                           section_tmp2, z_1, z_2, bottom=True)
+
+            # Move from the top of the overlapped CrossSection up to the vertically offset section
+            cut_list_1.append(prim.SectionLink(prev_point_1, prim.Point(section_tmp1[min_ind]['x'],
+                                                                        section_tmp1[min_ind]['y'] - self.vert_spacing,
+                                                                        z_1)))
+            cut_list_2.append(prim.SectionLink(prev_point_2, prim.Point(section_tmp2[min_ind]['x'],
+                                                                        section_tmp2[min_ind]['y'] - self.vert_spacing,
+                                                                        z_2)))
+            # Reset the prev points
+            prev_point_1 = prim.Point(section_tmp1[min_ind]['x'], section_tmp1[min_ind]['y'] - self.vert_spacing, z_1)
+            prev_point_2 = prim.Point(section_tmp2[min_ind]['x'], section_tmp2[min_ind]['y'] - self.vert_spacing, z_2)
+
+        max_ind = prim.GeometricFunctions.get_index_max_coord(main_section_1, 'y')
+        # Return to the top of the primary section
+        cut_list_1.append(
+            prim.SectionLink(prev_point_1, prim.Point(main_section_1[max_ind]['x'], main_section_1[max_ind]['y'], z_1)))
+        cut_list_2.append(
+            prim.SectionLink(prev_point_2, prim.Point(main_section_2[max_ind]['x'], main_section_2[max_ind]['y'], z_2)))
+
+        prev_point_1 = prim.Point(main_section_1[max_ind]['x'], main_section_1[max_ind]['y'], z_1)
+        prev_point_2 = prim.Point(main_section_2[max_ind]['x'], main_section_2[max_ind]['y'], z_2)
+
+        return prev_point_1, prev_point_2
 
     @staticmethod
     def create_section_collider(section, wall_thickness):
@@ -550,6 +823,91 @@ class SpatialPlacement:
         self.section_order.append(section_order_list)
         return self.section_order[cut_piece]
 
+    def _get_overlap_items(self, cut_piece):
+        """
+        Checks all cross sections along a single y-axis row against one another and checks if there is any relative
+        overlap between them. This information is used to alter the relative cut order to prevent cut intersections
+        during section transition.
+
+        :return: Dictionary with each section as an index with all other overlapping sections as the dictionary items.
+        """
+        overlapped_items = dict()
+        for row in self.section_order[cut_piece]:
+            for item in row:
+                for item2 in row:
+                    if item != item2:
+                        bb1 = self.state_dict[item]['bb']
+                        bb2 = self.state_dict[item2]['bb']
+
+                        overlap = self._bb_overlap(bb1, bb2)
+                        if overlap != self.NO_OVERLAP:
+                            if item not in overlapped_items:
+                                overlapped_items[item] = {'above': list(), 'below': list()}
+                            if overlap == self.ABOVE:
+                                overlapped_items[item]['above'].append(item2)
+                            else:
+                                overlapped_items[item]['below'].append(item2)
+
+        return overlapped_items
+
+    def _bb_overlap(self, bb1, bb2):
+        """
+        Checks for the relative overlap between bb1 and bb2. Returns self.ABOVE if bb2 is above bb1 with x overlap or
+        self.BELOW if bb2 is below bb1. Returns self.NO_OVERLAP if there is no overlap.
+
+        :param bb1: Bounding box for item 1 being checked.
+        :param bb2: Bounding box for item 2 being checked
+        :return: Enum with information about the relative overlap of the two bounding boxes.
+        :rtype: int
+        """
+        ret_val = self.NO_OVERLAP
+        p1 = prim.Point(sum([bb1[0][0], bb1[1][0]])/2.0, sum([bb1[0][1], bb1[1][1]])/2.0, 0)
+        p2 = prim.Point(sum([bb2[0][0], bb2[1][0]])/2.0, sum([bb2[0][1], bb2[1][1]])/2.0, 0)
+        if (bb1[0][0] <= p2['x'] <= bb1[1][0]) or (bb2[0][0] <= p1['x'] <= bb2[1][0]):
+            if p2['y'] < p1['y']:
+                ret_val = self.BELOW
+            else:
+                ret_val = self.ABOVE
+
+        return ret_val
+
+    def _clean_overlap_dict(self, overlap_dict, cut_piece):
+        new_overlap_dict = dict()
+        for ind in overlap_dict:
+            for ind2 in overlap_dict[ind]['above']:
+                if ind2 in overlap_dict and ((len(overlap_dict[ind2]['above']) + len(overlap_dict[ind2]['below'])) <=
+                                             (len(overlap_dict[ind]['above']) + len(overlap_dict[ind]['below']))):
+                    new_overlap_dict[ind] = overlap_dict[ind]
+            for ind2 in overlap_dict[ind]['below']:
+                if ind2 in overlap_dict and ((len(overlap_dict[ind2]['above']) + len(overlap_dict[ind2]['below'])) <=
+                                             (len(overlap_dict[ind]['above']) + len(overlap_dict[ind]['below']))):
+                    new_overlap_dict[ind] = overlap_dict[ind]
+
+        index_to_remove = list()
+        for ind in new_overlap_dict:
+
+            start_y = 0
+            for row in self.section_order[cut_piece]:
+                if ind in row:
+                    start_y = self.state_dict[row[0]]['y_pos']
+                    break
+
+            if ind in index_to_remove:
+                continue
+            for ind2 in new_overlap_dict:
+                if ind in new_overlap_dict[ind2]['above'] or ind in new_overlap_dict[ind2]['below']:
+                    y_ind1 = self.state_dict[ind]['y_pos']
+                    y_ind2 = self.state_dict[ind2]['y_pos']
+                    if abs(y_ind2 - start_y) < abs(y_ind1 - start_y):
+                        index_to_remove.append(ind)
+                    else:
+                        index_to_remove.append(ind2)
+
+        for ind in list(set(index_to_remove)):
+            del new_overlap_dict[ind]
+
+        return new_overlap_dict
+
     def plot_section_order(self, output_dir):
         for cut_section in range(self.num_sections):
             plt.close('all')
@@ -564,9 +922,8 @@ class SpatialPlacement:
                     txt = plt.text(self.state_dict[ind]['x_pos'], self.state_dict[ind]['y_pos'],
                                    s='C%s, O(%s,%s)' % (ind, ind1, ind2), fontsize='x-small')
                     txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
-
                 plt.axis('equal')
-                plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_order.png'))
+                plt.savefig(os.path.join(output_dir, 'Cross_Section_cut_order_%s.png' % cut_section))
 
     def plot_section_splitting_debug(self, output_dir):
         for cut_section in range(self.num_sections):

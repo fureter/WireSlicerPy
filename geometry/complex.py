@@ -5,6 +5,7 @@ import timeit
 
 import numpy as np
 import trimesh as tm
+import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
@@ -13,6 +14,7 @@ from geometry.spatial_manipulation import PointManip
 from slicer.spatial_placement import SpatialPlacement
 from slicer.wire_cutter import WireCutter
 from util import util_functions
+import serializer
 
 
 class CrossSectionPair(object):
@@ -22,6 +24,7 @@ class CrossSectionPair(object):
     :param CrossSection section1:
     :param CrossSection section2:
     """
+
     def __init__(self, section1, section2):
         self.section1 = copy.deepcopy(section1)
         self.section2 = copy.deepcopy(section2)
@@ -48,8 +51,8 @@ class CrossSectionPair(object):
             for index in range(num_sections):
                 curr_section1 = list()
                 curr_section2 = list()
-                arc_len = 360/num_sections
-                upper_range = arc_len * (index+1)
+                arc_len = 360 / num_sections
+                upper_range = arc_len * (index + 1)
                 lower_range = arc_len * index
                 radius = 10000
 
@@ -143,10 +146,10 @@ class CrossSectionPair(object):
         self.section1.plot(color=color, scatter=True)
         self.section2.plot(color=color, scatter=True)
         for index in range(num_sections):
-            arc_len = 360/num_sections
-            upper_range = arc_len * (index+1) - 180
-            plt.plot([center['x'], center['x'] + np.cos(np.deg2rad(upper_range))*radius],
-                     [center['y'], center['y'] + np.sin(np.deg2rad(upper_range))*radius])
+            arc_len = 360 / num_sections
+            upper_range = arc_len * (index + 1) - 180
+            plt.plot([center['x'], center['x'] + np.cos(np.deg2rad(upper_range)) * radius],
+                     [center['y'], center['y'] + np.sin(np.deg2rad(upper_range)) * radius])
 
     def apply_kerf(self, kerf, max_kerf):
         """
@@ -159,6 +162,20 @@ class CrossSectionPair(object):
         if kerf:
             self.section1.apply_kerf(kerf, max_kerf)
             self.section2.apply_kerf(kerf, max_kerf)
+
+    def align_start(self):
+        section1_path = self.section1.get_path()
+        section2_path = self.section2.get_path()
+
+        start_index1 = prim.GeometricFunctions.get_index_min_coord(section1_path, 'x')
+        start_index2 = prim.GeometricFunctions.get_index_min_coord(section2_path, 'x')
+
+        reordered_path1 = section1_path[start_index1:] + section1_path[0:start_index1]
+        reordered_path2 = section2_path[start_index2:] + section2_path[0:start_index2]
+
+        self.section1 = CrossSection(prim.Path(reordered_path1))
+        self.section2 = CrossSection(prim.Path(reordered_path2))
+
 
     def get_path(self):
         return self.section1.get_path(), self.section2.get_path()
@@ -197,7 +214,7 @@ class CrossSection(object):
         if kerf:
             outer_path = self.get_path()
             length_per_point = prim.GeometricFunctions.path_length(outer_path) / len(outer_path)
-            kerf_amount_outer = kerf/length_per_point
+            kerf_amount_outer = kerf / length_per_point
             kerf_amount_outer = min(kerf_amount_outer, max_kerf)
             for ind, section in enumerate(self._section_list):
                 path = section.get_path()
@@ -211,7 +228,7 @@ class CrossSection(object):
                 for ind, section in enumerate(self.holes):
                     path = section.get_path()
                     length_per_point = prim.GeometricFunctions.path_length(path) / len(path)
-                    kerf_amount = kerf/length_per_point
+                    kerf_amount = kerf / length_per_point
                     kerf_amount = min(kerf_amount, max_kerf)
                     # Holes are offset inwards rather than outwards
                     new_path = prim.GeometricFunctions.offset_curve(path, kerf_amount, 1, 1, add_leading_edge=False)
@@ -277,16 +294,16 @@ class CrossSection(object):
             min_y_p = prim.GeometricFunctions.get_point_from_min_coord(path, 'y')
 
             test_line = prim.Line.line_from_points(prim.Point(point['x'], point['y'], 0),
-                                                   prim.Point(point['x'], min_y_p['y']-1, 0))
+                                                   prim.Point(point['x'], min_y_p['y'] - 1, 0))
 
             times_intersected = 0
-            for ind in range(0, len(path)-1):
+            for ind in range(0, len(path) - 1):
                 point_1 = prim.Point(path[ind]['x'], path[ind]['y'], 0)
-                point_2 = prim.Point(path[ind+1]['x'], path[ind+1]['y'], 0)
+                point_2 = prim.Point(path[ind + 1]['x'], path[ind + 1]['y'], 0)
                 tmp_line = prim.Line.line_from_points(point_1, point_2)
-                #test_line.plot()
-                #tmp_line.plot()
-                #plt.show()
+                # test_line.plot()
+                # tmp_line.plot()
+                # plt.show()
                 if test_line.intersects(tmp_line)[0]:
                     times_intersected += 1
             ret_val = (times_intersected % 2) == 1
@@ -334,7 +351,7 @@ class CutPath():
     def cut_list_2(self):
         return self._cut_list_2
 
-    def is_valid_cut_path(self, tol=0.01):
+    def is_valid_cut_path(self, tol=0.01, plot=False):
         logger = logging.getLogger(__name__)
         ret_val = True
         l1 = len(self._cut_list_1)
@@ -345,27 +362,34 @@ class CutPath():
         else:
             for indx in range(0, l1 - 1):
                 if len(self.cut_list_1[indx + 1].get_path()) < 1:
-                    logger.error('Error: Path of section %s has no points' % (indx+1))
+                    logger.error('Error: Path of section %s has no points' % (indx + 1))
                     ret_val = False
                 if len(self._cut_list_1[indx].get_path()) < 1:
                     logger.error('Error: Path of section %s has no points' % indx)
                     ret_val = False
-                # logger.debug('Index: %s, index+1: %s', indx, indx + 1)
-                # logger.debug('cut_list_1[indx]: %s', self._cut_list_1[indx])
-                # logger.debug('cut_list_1[indx+1]: %s', self._cut_list_1[indx + 1])
-                # logger.debug('cut_list_1[indx].path: %s', self._cut_list_1[indx].get_path())
-                # logger.debug('cut_list_1[indx+1].path: %s', self._cut_list_1[indx + 1].get_path())
-                # logger.debug('cut_list_1[indx].path[-1]: %s', self._cut_list_1[indx].get_path()[-1])
-                # logger.debug('cut_list_1[indx].path[-1]: %s', self._cut_list_1[indx].get_path()[-1])
-                # logger.debug('cut_list_1[indx+1].path[0]: %s', self._cut_list_1[indx + 1].get_path()[0])
-                logger.debug('dist: %s', np.sqrt((self.cut_list_1[indx + 1].get_path()[0] - self._cut_list_1[indx].get_path()[-1])**2))
-                if np.sqrt((self.cut_list_1[indx + 1].get_path()[0] - self._cut_list_1[indx].get_path()[-1])**2) > tol:
+                if np.sqrt(
+                        (self.cut_list_1[indx + 1].get_path()[0] - self._cut_list_1[indx].get_path()[-1]) ** 2) > tol:
                     logger.error('Error: End of a Section is not the start of another (%s != %s)' %
                                  (self.cut_list_1[indx + 1].get_path()[0], self._cut_list_1[indx].get_path()[-1]))
+                    if plot:
+                        plt.scatter([self.cut_list_1[indx + 1].get_path()[0]['x']],
+                                    [self.cut_list_1[indx + 1].get_path()[0]['y']],
+                                    c='C9')
+                        plt.scatter([self._cut_list_1[indx].get_path()[-1]['x']],
+                                    [self._cut_list_1[indx].get_path()[-1]['y']],
+                                    c='C10')
                     ret_val = False
-                if np.sqrt((self.cut_list_2[indx + 1].get_path()[0] - self._cut_list_2[indx].get_path()[-1])**2) > tol:
+                if np.sqrt(
+                        (self.cut_list_2[indx + 1].get_path()[0] - self._cut_list_2[indx].get_path()[-1]) ** 2) > tol:
                     logger.error('Error: End of a Section is not the start of another (%s != %s)' %
                                  (self.cut_list_2[indx + 1].get_path()[0], self._cut_list_2[indx].get_path()[-1]))
+                    if plot:
+                        plt.scatter([self.cut_list_2[indx + 1].get_path()[0]['x']],
+                                    [self.cut_list_2[indx + 1].get_path()[0]['y']],
+                                    c='C11')
+                        plt.scatter([self._cut_list_2[indx].get_path()[-1]['x']],
+                                    [self._cut_list_2[indx].get_path()[-1]['y']],
+                                    c='C12')
                     ret_val = False
 
         return ret_val
@@ -439,9 +463,9 @@ class CutPath():
         if wire_cutter.kerf is not None:
             if wing.root_chord > wing.tip_chord:
                 kerf_root = wire_cutter.kerf
-                kerf_tip = wire_cutter.kerf * wing.root_chord/wing.tip_chord * 1.6
+                kerf_tip = wire_cutter.kerf * wing.root_chord / wing.tip_chord * 1.6
             else:
-                kerf_root = wire_cutter.kerf * wing.root_chord/wing.tip_chord * 1.6
+                kerf_root = wire_cutter.kerf * wing.root_chord / wing.tip_chord * 1.6
                 kerf_tip = wire_cutter.kerf
             if debug_kerf:
                 prim.GeometricFunctions.plot_path(root_foil, 1)
@@ -495,7 +519,7 @@ class CutPath():
         p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
 
         if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
-            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth-p2['x'])
+            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth - p2['x'])
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
 
@@ -545,7 +569,7 @@ class CutPath():
         p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
 
         if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
-            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth-p2['x'])
+            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth - p2['x'])
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
 
@@ -580,7 +604,10 @@ class CutPath():
         sp.bin_packing_algorithm(cross_section_pairs, output_dir=output_dir, distance_between_sections=section_gap)
         logger.debug('Finished aligning cross sections on workpiece, took %ss', timeit.default_timer() - start)
 
+        serializer.encode(sp, os.path.join(os.path.dirname(output_dir), 'json'), 'spatial_placement_bf_cp_gen')
+
         cut_path_1, cut_path_2 = sp.create_section_links_for_cross_section_pairs(method=1)
+        serializer.encode(sp, os.path.join(os.path.dirname(output_dir), 'json'), 'spatial_placement_af_cp_gen')
         sp.plot_section_order(output_dir)
         # sp.plot_section_splitting_debug(output_dir)
         cut_paths = list()
@@ -625,6 +652,7 @@ class CutPath():
                 x[ind] = path[ind]['x']
                 y[ind] = path[ind]['y']
             plt.plot(x, y, 'r')
+            plt.scatter([path[0]['x']], [path[0]['y']], c='C10')
 
         for item in self._cut_list_2:
             path = item.get_path()
@@ -635,6 +663,9 @@ class CutPath():
                 x[ind] = path[ind]['x']
                 y[ind] = path[ind]['y']
             plt.plot(x, y, 'k')
+            plt.scatter([path[0]['x']], [path[0]['y']], c='C11')
+
+        self.is_valid_cut_path(plot=True)
 
         plt.axis('equal')
         if show:
@@ -696,7 +727,7 @@ class STL():
         self._setup(units=units)
 
     def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, open_nose=False,
-                                   open_tail=False):
+                                   open_tail=False, output_dir=None):
         """
 
         :param float wall_thickness: Thickness of the part from the outer shell to the inner shell created by a simple
@@ -712,7 +743,7 @@ class STL():
         """
         logger = logging.getLogger(__name__)
         cross_section_pair_list = list()
-        self.slice_into_cross_sections(origin_plane, spacing, number_sections)
+        self.slice_into_cross_sections(origin_plane, spacing, number_sections, output_dir=output_dir)
         cross_section_list = copy.deepcopy(self.cross_sections)
 
         if open_nose and len(cross_section_list) > 1 and wall_thickness > 0:
@@ -720,23 +751,23 @@ class STL():
         if open_tail and len(cross_section_list) > 2 and wall_thickness > 0:
             cross_section_list[-1].add_simple_hole_from_offset(wall_thickness)
 
-        for ind in range(1, len(cross_section_list)-1):
+        for ind in range(1, len(cross_section_list) - 1):
             if not open_nose and ind == 1:
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1],
+                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1],
                                                                 copy.deepcopy(cross_section_list[ind])))
                 if wall_thickness > 0:
                     cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
-            elif not open_tail and ind == len(cross_section_list)-1:
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1], cross_section_list[ind]))
+            elif not open_tail and ind == len(cross_section_list) - 1:
+                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
             else:
                 if wall_thickness > 0:
                     cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind-1], cross_section_list[ind]))
+                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
         cross_section_pair_list.append(CrossSectionPair(cross_section_list[-2], cross_section_list[-1]))
 
         return cross_section_pair_list
 
-    def slice_into_cross_sections(self, origin_plane, spacing, number_sections):
+    def slice_into_cross_sections(self, origin_plane, spacing, number_sections, output_dir=None):
         """
         Slices the STL into `number_sections` with `spacing` separation normal to the `origin_plane`.
 
@@ -748,7 +779,7 @@ class STL():
         self.trimesh_cross_sections = list()
         heights = list()
         for i in range(number_sections):
-            heights.append(spacing*i)
+            heights.append(spacing * i)
         origin = np.array(origin_plane.origin)
         normal = np.array(origin_plane.normal)
         sections = self.mesh.section_multiplane(plane_origin=origin, plane_normal=normal, heights=heights)
@@ -756,27 +787,67 @@ class STL():
             self.trimesh_cross_sections.extend(sections)
             self.cross_sections = list()
             for ind1, section in enumerate(sections):
-                points = list()
-                # Add the points from trimesh discrete path
-                for ind in range(0, len(section.discrete[0])):
-                    points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], 0))
-                # Reorder the points to be in a clockwise order with the first point being at 180 deg from center.
-                path = PointManip.reorder_2d_cw(points, method=3)
-                # Close the path so that the last point is the first point.
-                path = prim.GeometricFunctions.close_path(path)
-                # Normalize the path so that there are X number points uniform spacing from one another.
-                # length = prim.GeometricFunctions.path_length(path)
-                # num_points = int(length/0.1)
-                # logger.debug('Number of points for section: %s', num_points)
-                path = prim.GeometricFunctions.normalize_path_points(path, num_points=512)
-                # Remove any duplicate points that are memory equivalent, these points would get double transformed
-                # later down the line.
-                path = prim.GeometricFunctions.remove_duplicate_memory_from_path(path)
-                # path = PointManip.reorder_2d_cw(points, method=4)
+                # Last section could be None if the CrossSection plane is past the length of the stl, skip processing
+                # the section if it is None and is the last entry
+                if section is None and ind1 == len(sections) - 1:
+                    continue
+                else:
+                    if output_dir:
+                        plt.close('all')
+                        plt.figure(figsize=(16, 9), dpi=360)
+                        section.plot_discrete()
+                        plt.axis('equal')
+                        plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_raw_%s.png' % ind1))
 
-                # Save off the transformed points as CrossSections
-                self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
-                self.logger.debug('section: %s', self.cross_sections[-1])
+                    points = list()
+                    # Add the points from trimesh discrete path
+                    for ind in range(0, len(section.discrete[0])):
+                        points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], 0))
+                    # Reorder the points to be in a clockwise order with the first point being at 180 deg from center.
+                    if output_dir:
+                        plt.close('all')
+                        plt.figure(figsize=(16, 9), dpi=360)
+                        prim.GeometricFunctions.plot_path(points, color='C1', scatter=True, scatter_color='C2')
+                        plt.axis('equal')
+                        plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_b_ar_%s.png' % ind1))
+
+                    path = PointManip.reorder_2d_cw(points, method=5)
+                    if output_dir:
+                        plt.close('all')
+                        plt.figure(figsize=(16, 9), dpi=360)
+                        prim.GeometricFunctions.plot_path(path, color='C1', scatter=True, scatter_color='C2')
+                        prim.GeometricFunctions.plot_path([path[0]], color='C10', scatter=True, scatter_color='C20')
+                        plt.axis('equal')
+                        plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_ar_%s.png' % ind1))
+
+                    # Close the path so that the last point is the first point.
+                    path = prim.GeometricFunctions.close_path(path)
+                    # Normalize the path so that there are X number points uniform spacing from one another.
+                    path = prim.GeometricFunctions.normalize_path_points(path, num_points=512)
+                    if output_dir:
+                        plt.close('all')
+                        plt.figure(figsize=(16, 9), dpi=360)
+                        prim.GeometricFunctions.plot_path(path, color='C1', scatter=True, scatter_color='C2')
+                        prim.GeometricFunctions.plot_path([path[0]], color='C10', scatter=True, scatter_color='C20')
+                        plt.axis('equal')
+                        plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_nor_%s.png' % ind1))
+
+                    path = PointManip.reorder_2d_cw(path, method=6)
+                    # Remove any duplicate points that are memory equivalent, these points would get double transformed
+                    # later down the line.
+                    path = prim.GeometricFunctions.remove_duplicate_memory_from_path(path)
+                    if output_dir:
+                        plt.close('all')
+                        plt.figure(figsize=(16, 9), dpi=360)
+                        prim.GeometricFunctions.plot_path(path, color='C1', scatter=True, scatter_color='C2')
+                        prim.GeometricFunctions.plot_path([path[0]], color='C10', scatter=True, scatter_color='C20')
+                        plt.axis('equal')
+                        plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_f_%s.png' % ind1))
+
+
+                    # Save off the transformed points as CrossSections
+                    self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
+                    self.logger.debug('section: %s', self.cross_sections[-1])
             # Center the CrossSections so that the center of the most forward cross section is at zero x,y. All
             # CrossSections are translated by the same amount to keep the same relative positioning.
             self.center_cross_sections()
@@ -846,7 +917,7 @@ class STL():
         self.mesh.metadata['units'] = units
 
 
-class WingSegment():
+class WingSegment(object):
     """
 
     """
@@ -966,7 +1037,7 @@ class WingSegment():
 
         rot = [0, np.deg2rad(-self.sweep), 0]
         origin = [0, 0, self.root_airfoil[0]['z'] if self.root_airfoil[0]['x'] < self.tip_airfoil[0]['x'] else
-                        self.tip_airfoil[0]['z']]
+        self.tip_airfoil[0]['z']]
         logger.debug('Origin for rotation: %s', origin)
         PointManip.Transform.rotate(self.root_airfoil, rot, origin)
         PointManip.Transform.rotate(self.tip_airfoil, rot, origin)

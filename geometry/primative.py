@@ -661,40 +661,40 @@ class GeometricFunctions(object):
         """
         x = list()
         y = list()
-        for cut in range(num_sections):
-            plt.close('all')
-            plt.figure(figsize=(16, 9), dpi=320)
-            plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0],
-                     'g')
-            for ind in range(0, len(state_dict)):
-                if state_dict[ind]['cut'] == cut+1:
-                    path_1 = copy.deepcopy(state_dict[ind]['section'].section1.get_path())
-                    path_2 = copy.deepcopy(state_dict[ind]['section'].section2.get_path())
-                    collider_path1 = copy.deepcopy(state_dict[ind]['collider1'].get_path())
-                    collider_path2 = copy.deepcopy(state_dict[ind]['collider2'].get_path())
+        plt.close('all')
+        plt.figure(figsize=(16, 9), dpi=320)
+        plt.plot([0, 0, work_piece.width, work_piece.width, 0], [0, work_piece.height, work_piece.height, 0, 0],
+                 'g')
 
-                    GeometricFunctions.move_cross_section_from_state_dict(
-                        path_1=path_1,
-                        path_2=path_2,
-                        dict_entry=state_dict[ind])
+        for ind in range(0, len(state_dict)):
+            if ind in state_dict and state_dict[ind]['cut'] == num_sections:
+                path_1 = copy.deepcopy(state_dict[ind]['section'].section1.get_path())
+                path_2 = copy.deepcopy(state_dict[ind]['section'].section2.get_path())
+                collider_path1 = copy.deepcopy(state_dict[ind]['collider1'].get_path())
+                collider_path2 = copy.deepcopy(state_dict[ind]['collider2'].get_path())
 
-                    bb1 = GeometricFunctions.get_bounding_box_from_path(collider_path1 + collider_path2)
+                GeometricFunctions.move_cross_section_from_state_dict(
+                    path_1=path_1,
+                    path_2=path_2,
+                    dict_entry=state_dict[ind])
 
-                    plt.plot([bb1[0][0], bb1[0][0], bb1[1][0], bb1[1][0], bb1[0][0]],
-                             [bb1[0][1], bb1[1][1], bb1[1][1], bb1[0][1], bb1[0][1]], 'k')
+                bb1 = GeometricFunctions.get_bounding_box_from_path(collider_path1 + collider_path2)
 
-                    GeometricFunctions.plot_path(path_1, 'r', scatter=False)
-                    GeometricFunctions.plot_path(path_2, 'b', scatter=False)
-                    GeometricFunctions.plot_path(collider_path1, 'm', scatter=False)
-                    GeometricFunctions.plot_path(collider_path2, 'c', scatter=False)
-                    x.append(state_dict[ind]['x_pos'])
-                    y.append(state_dict[ind]['y_pos'])
+                plt.plot([bb1[0][0], bb1[0][0], bb1[1][0], bb1[1][0], bb1[0][0]],
+                         [bb1[0][1], bb1[1][1], bb1[1][1], bb1[0][1], bb1[0][1]], 'k')
 
-                    txt = plt.text(state_dict[ind]['x_pos'], state_dict[ind]['y_pos'], s='C%s' % (ind + 1),
-                                   fontsize='small')
-                    txt.set_path_effects([pe.withStroke(linewidth=2, foreground='w')])
+                GeometricFunctions.plot_path(path_1, 'r', scatter=False)
+                GeometricFunctions.plot_path(path_2, 'b', scatter=False)
+                GeometricFunctions.plot_path(collider_path1, 'm', scatter=False)
+                GeometricFunctions.plot_path(collider_path2, 'c', scatter=False)
+                x.append(state_dict[ind]['x_pos'])
+                y.append(state_dict[ind]['y_pos'])
 
-            plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_sheet%s_%s.png' % ((cut+1), index)))
+                txt = plt.text(state_dict[ind]['x_pos'], state_dict[ind]['y_pos'], s='C%s' % (ind + 1),
+                               fontsize='medium')
+                txt.set_path_effects([pe.withStroke(linewidth=3, foreground='w')])
+            plt.axis('equal')
+        plt.savefig(os.path.join(output_dir, 'Cross_Section_pos_sheet%s_%s.png' % (num_sections, index)))
 
     @staticmethod
     def bounding_boxes_intersect(bb1, bb2):

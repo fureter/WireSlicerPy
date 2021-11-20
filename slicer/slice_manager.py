@@ -8,6 +8,7 @@ import g_code.generator as gg
 import geometry.complex as comp
 import geometry.primative as prim
 import slicer.tool_path as tp
+import serializer
 
 
 class SliceManager(object):
@@ -21,7 +22,7 @@ class SliceManager(object):
         self.wire_cutter = wire_cutter
         self.work_piece = work_piece
 
-    def stl_to_gcode(self, stl_path, name, output_dir, subdivisions, units, wall_thickness):
+    def stl_to_gcode(self, stl_path, name, output_dir, subdivisions, units, wall_thickness, section_gap=5):
         """
         Creates G-Code from an STL file by taking slices of the STL.
 
@@ -68,6 +69,8 @@ class SliceManager(object):
                                                           spacing=spacing, number_sections=length,
                                                           open_nose=False, open_tail=True)
 
+        serializer.encode(section_list, output_dir=os.path.join(output_dir, 'json'), file_name='cross_section_list')
+
         for ind, section in enumerate(section_list):
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=320)
@@ -76,6 +79,8 @@ class SliceManager(object):
             if section.section1.get_path_hole() is not None:
                 prim.GeometricFunctions.plot_path(section.section1.get_path_hole(), color='C3', scatter=False)
                 prim.GeometricFunctions.plot_path(section.section2.get_path_hole(), color='C4', scatter=False)
+            prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True)
+            prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True)
             plt.legend(['Section 1 outer', 'Section 2 outer', 'Section 1 inner', 'Section 2 inner'])
             plt.axis('equal')
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_Cross_Section_orig_%s.png' % (name, ind)))
@@ -88,18 +93,28 @@ class SliceManager(object):
             prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C1', scatter=False)
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
             section.apply_kerf(kerf=self.wire_cutter.kerf, max_kerf=self.wire_cutter.max_kerf)
-            prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C3', scatter=False)
-            prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C4', scatter=False)
+            # section.align_start()
+            prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C3', scatter=True)
+            prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C4', scatter=True)
+            prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True)
+            prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True)
+
             plt.legend(['Section 1 orig', 'Section 2 orig', 'Section 1 kerf', 'Section 2 kerf'])
             plt.axis('equal')
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_subdivisions_%s.png' % (name, ind)))
             plt.show()
 
+        serializer.encode(subdivided_list, output_dir=os.path.join(output_dir, 'json'),
+                          file_name='subdivided_section_list')
+
         cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, self.work_piece,
-                                                                              section_gap=4,
+                                                                              section_gap=section_gap,
                                                                               wire_cutter=self.wire_cutter,
                                                                               output_dir=os.path.join(output_dir,
                                                                                                       'plots'))
+        serializer.encode(cut_paths, output_dir=os.path.join(output_dir, 'json'),
+                          file_name='cut_paths')
+
         for ind, cut_path in enumerate(cut_paths):
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=360)
@@ -130,3 +145,5 @@ class SliceManager(object):
             os.mkdir(os.path.join(output_dir, name))
         if not os.path.exists(os.path.join(output_dir, name, 'plots')):
             os.mkdir(os.path.join(output_dir, name, 'plots'))
+        if not os.path.exists(os.path.join(output_dir, name, 'json')):
+            os.mkdir(os.path.join(output_dir, name, 'json'))

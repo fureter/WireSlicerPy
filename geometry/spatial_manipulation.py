@@ -141,6 +141,7 @@ class PointManip():
         assumes x and y are the two dimensions of interest
         :return: reordered list of points
         """
+        logger = logging.getLogger(__name__)
         center = [0, 0, 0]
         for i in range(0, len(points)):
             center[0] += points[i]['x']
@@ -169,9 +170,15 @@ class PointManip():
         elif method == 4:
             sorted_points = PointManip._tsp_touchup(points, bandwidth=10, ang_thresh=15)
             name = 'TSP Touch-up'
+        elif method == 5:
+            sorted_points = PointManip._trimesh_sort(points)
+            name = 'Trimesh Sort'
+        elif method == 6:
+            sorted_points = PointManip._realign_180deg(points, center)
+            name = 'Realign to 180deg'
         else:
             raise NotImplementedError
-        print('Took %ss to complete %s' % (timeit.default_timer() - start_polar, name))
+        logger.info('Took %ss to complete %s' % (timeit.default_timer() - start_polar, name))
 
         return np.array(sorted_points)
 
@@ -311,6 +318,52 @@ class PointManip():
                         min_dist = dist
                         closest_point = points[ind2]
             sorted_points.append(closest_point)
+        return sorted_points
+
+    @staticmethod
+    def _trimesh_sort(points):
+        min_ind = prim.GeometricFunctions.get_index_min_coord(points, 'x')
+
+        cw = False
+
+        if min_ind < len(points)-1:
+            y_dist = points[min_ind]['y'] - points[min_ind + 1]['y']
+            if y_dist < 0:
+                cw = True
+        else:
+            y_dist = points[min_ind]['y'] - points[0]['y']
+            if y_dist < 0:
+                cw = True
+
+        if cw:
+            sorted_points = points[min_ind:] + points[0:min_ind]
+        else:
+            p1 = list(reversed(points[min_ind:]))
+            p2 = list(reversed(points[0:min_ind]))
+            sorted_points = p2 + p1
+
+        err_msg = 'Error: Points lost | Size Before Sort: %s | Size after Sort %s' % (len(points), len(sorted_points))
+        assert len(sorted_points) == len(points), err_msg
+
+        return sorted_points
+
+    @staticmethod
+    def _realign_180deg(points, center):
+        min_ind = 0
+        closest_angle = 2*np.pi
+        for ind, point in enumerate(points):
+            p_diff = point - center
+            angle = np.arctan2(p_diff['y'], p_diff['x'])
+            angle = angle if angle > 0 else angle + 2*np.pi
+            if abs(angle - np.pi) < abs(closest_angle - np.pi):
+                closest_angle = angle
+                min_ind = ind
+
+        sorted_points = points[min_ind:] + points[0:min_ind]
+
+        err_msg = 'Error: Points lost | Size Before Sort: %s | Size after Sort %s' % (len(points), len(sorted_points))
+        assert len(sorted_points) == len(points), err_msg
+
         return sorted_points
 
     @staticmethod
