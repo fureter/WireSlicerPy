@@ -1,20 +1,20 @@
 import copy
 import logging
 import os
+import sys
 import timeit
 
 import numpy as np
 import trimesh as tm
-import matplotlib
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 import geometry.primative as prim
+import serializer
 from geometry.spatial_manipulation import PointManip
 from slicer.spatial_placement import SpatialPlacement
 from slicer.wire_cutter import WireCutter
 from util import util_functions
-import serializer
 
 
 class CrossSectionPair(object):
@@ -203,6 +203,15 @@ class CrossSection(object):
     def add_section(self, section):
         self._section_list.append(section)
 
+    def add_hole(self, hole):
+        """
+
+        :param CrossSection hole: Hole to add to the cross section.
+        """
+        if self.holes is None:
+            self.holes = list()
+        self.holes.append(hole)
+
     def apply_kerf(self, kerf, max_kerf):
         """
         Applies the kerf value to the two Cross Sections to prepare for cutting with a wire cutter.
@@ -262,6 +271,30 @@ class CrossSection(object):
             for hole in self.holes:
                 path.extend(hole.get_path())
             ret_val = path
+        return ret_val
+
+    def get_closest_point_to_hole(self):
+        """
+
+        :return: List of tuples where each tuple is the index on the main path and the index on each hole that define
+         the two points closest to one another.
+        :rtype: list[tuple(int,int)] or None
+        """
+        ret_val = None
+        if self.holes is not None:
+            ret_val = list()
+            for hole in self.holes:
+                min_dist = sys.maxsize
+                min_ind = 0
+                min_ind_hole = 0
+                for ind_hole, point_hole in enumerate(hole.get_path()):
+                    for ind, point in enumerate(self.get_path()):
+                        dist = np.sqrt((point_hole - point)**2)
+                        if dist < min_dist:
+                            min_dist = dist
+                            min_ind = ind
+                            min_ind_hole = ind_hole
+                ret_val.append((min_ind, min_ind_hole))
         return ret_val
 
     def plot(self, color=None, show=True, scatter=False):
@@ -726,8 +759,8 @@ class STL():
         self._file_path = file_path
         self._setup(units=units)
 
-    def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, open_nose=False,
-                                   open_tail=False, output_dir=None):
+    def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, output_dir=None,
+                                   hollow_section_list=None):
         """
 
         :param float wall_thickness: Thickness of the part from the outer shell to the inner shell created by a simple
@@ -746,24 +779,29 @@ class STL():
         self.slice_into_cross_sections(origin_plane, spacing, number_sections, output_dir=output_dir)
         cross_section_list = copy.deepcopy(self.cross_sections)
 
-        if open_nose and len(cross_section_list) > 1 and wall_thickness > 0:
-            cross_section_list[0].add_simple_hole_from_offset(wall_thickness)
-        if open_tail and len(cross_section_list) > 2 and wall_thickness > 0:
-            cross_section_list[-1].add_simple_hole_from_offset(wall_thickness)
+        # if open_nose and len(cross_section_list) > 1 and wall_thickness > 0:
+        #     cross_section_list[0].add_simple_hole_from_offset(wall_thickness)
+        # if open_tail and len(cross_section_list) > 2 and wall_thickness > 0:
+        #     cross_section_list[-1].add_simple_hole_from_offset(wall_thickness)
 
-        for ind in range(1, len(cross_section_list) - 1):
-            if not open_nose and ind == 1:
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1],
-                                                                copy.deepcopy(cross_section_list[ind])))
-                if wall_thickness > 0:
-                    cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
-            elif not open_tail and ind == len(cross_section_list) - 1:
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
-            else:
-                if wall_thickness > 0:
-                    cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
-                cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
+        for ind in range(1, len(cross_section_list)):
+            # if not open_nose and ind == 1:
+            cross_section_pair_list.append(CrossSectionPair(copy.deepcopy(cross_section_list[ind - 1]),
+                                                            copy.deepcopy(cross_section_list[ind])))
+            #     if wall_thickness > 0:
+            #         cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
+            # elif not open_tail and ind == len(cross_section_list) - 1:
+            #     cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
+            # else:
+            #     if wall_thickness > 0:
+            #         cross_section_list[ind].add_simple_hole_from_offset(wall_thickness)
+            #     cross_section_pair_list.append(CrossSectionPair(cross_section_list[ind - 1], cross_section_list[ind]))
         cross_section_pair_list.append(CrossSectionPair(cross_section_list[-2], cross_section_list[-1]))
+        if wall_thickness > 0:
+            for ind, hollow in enumerate(hollow_section_list):
+                if hollow:
+                    cross_section_pair_list[ind].section1.add_simple_hole_from_offset(wall_thickness)
+                    cross_section_pair_list[ind].section2.add_simple_hole_from_offset(wall_thickness)
 
         return cross_section_pair_list
 
@@ -846,7 +884,38 @@ class STL():
 
 
                     # Save off the transformed points as CrossSections
-                    self.cross_sections.append(CrossSection(section_list=[prim.Path(path)]))
+                    cross_section = CrossSection(section_list=[prim.Path(path)])
+                    # Holes are present in the geometry
+                    if len(section.entities) > 1:
+                        for ind in range(1, len(section.entities)):
+                            hole_points = list()
+                            # Add the points from trimesh discrete path
+                            for ind2 in range(0, len(section.discrete[ind])):
+                                hole_points.append(
+                                    prim.Point(section.discrete[ind][ind2][0], section.discrete[ind][ind2][1], 0))
+                            path_hole = PointManip.reorder_2d_cw(hole_points, method=5)
+                            path_hole = prim.GeometricFunctions.close_path(path_hole)
+                            path_hole = prim.GeometricFunctions.normalize_path_points(path_hole, num_points=512)
+                            path_hole = PointManip.reorder_2d_cw(path_hole, method=6)
+                            path_hole = prim.GeometricFunctions.remove_duplicate_memory_from_path(path_hole)
+                            cross_section.add_hole(CrossSection(section_list=[prim.Path(path_hole)]))
+                        longest_length = 0
+                        length_ind = 0
+                        if longest_length < prim.GeometricFunctions.path_length(cross_section.get_path()):
+                            longest_length = prim.GeometricFunctions.path_length(cross_section.get_path())
+                        for ind, hole in enumerate(cross_section.holes):
+                            if longest_length < prim.GeometricFunctions.path_length(hole.get_path()):
+                                longest_length = prim.GeometricFunctions.path_length(hole.get_path())
+                                length_ind = ind + 1
+                        if length_ind != 0:
+                            cross_section_tmp = CrossSection(section_list=cross_section.holes[length_ind-1])
+                            cross_section_tmp.add_hole(CrossSection([prim.Path(cross_section.get_path())]))
+                            for ind, hole in enumerate(cross_section.holes):
+                                if ind != length_ind-1:
+                                    cross_section_tmp.add_hole(hole)
+                            cross_section = copy.deepcopy(cross_section_tmp)
+
+                    self.cross_sections.append(cross_section)
                     self.logger.debug('section: %s', self.cross_sections[-1])
             # Center the CrossSections so that the center of the most forward cross section is at zero x,y. All
             # CrossSections are translated by the same amount to keep the same relative positioning.

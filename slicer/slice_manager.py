@@ -22,7 +22,8 @@ class SliceManager(object):
         self.wire_cutter = wire_cutter
         self.work_piece = work_piece
 
-    def stl_to_gcode(self, stl_path, name, output_dir, subdivisions, units, wall_thickness, section_gap=5):
+    def stl_to_gcode(self, stl_path, name, output_dir, subdivisions, units, wall_thickness, section_gap=5,
+                     open_nose=False, open_tail=True, hollow_section_list=None):
         """
         Creates G-Code from an STL file by taking slices of the STL.
 
@@ -65,9 +66,22 @@ class SliceManager(object):
         slice_plane = prim.Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
         spacing = self.work_piece.thickness
         length = int(abs(bounding_box[1][used_index] - bounding_box[0][used_index]) / spacing) + 1
+
+        if hollow_section_list is None:
+            hollow_section_list = [True] * length
+            if not open_nose:
+                hollow_section_list[0] = False
+            if not open_tail:
+                hollow_section_list[-1] = False
+        else:
+            hollow_section_list_tmp = [False] * length
+            for index in hollow_section_list:
+                hollow_section_list_tmp[index] = True
+            hollow_section_list = hollow_section_list_tmp
+
         section_list = cut_stl.create_cross_section_pairs(wall_thickness=wall_thickness, origin_plane=slice_plane,
                                                           spacing=spacing, number_sections=length,
-                                                          open_nose=False, open_tail=True)
+                                                          hollow_section_list=hollow_section_list)
 
         serializer.encode(section_list, output_dir=os.path.join(output_dir, 'json'), file_name='cross_section_list')
 
@@ -78,6 +92,7 @@ class SliceManager(object):
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
             if section.section1.get_path_hole() is not None:
                 prim.GeometricFunctions.plot_path(section.section1.get_path_hole(), color='C3', scatter=False)
+            if section.section2.get_path_hole() is not None:
                 prim.GeometricFunctions.plot_path(section.section2.get_path_hole(), color='C4', scatter=False)
             prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True)
             prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True)

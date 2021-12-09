@@ -1,25 +1,12 @@
 import logging
 import os
-import copy
-import json
 
 import matplotlib
-import matplotlib.pyplot as plt
-import jsonpickle
 
-import serializer
 import slicer.slice_manager as sm
 import wire_slicer
-import geometry.primative as prim
 from geometry.primative import WorkPiece
 from slicer.wire_cutter import WireCutter
-from geometry.parser import Dat
-from geometry.spatial_manipulation import PointManip
-from geometry.complex import WingSegment
-from geometry.complex import CutPath
-from slicer.tool_path import ToolPath
-from g_code.generator import GCodeGenerator
-from g_code.generator import TravelType
 
 
 def main():
@@ -121,9 +108,10 @@ def main():
     work_piece = WorkPiece(width=600, height=300, thickness=18.5)
     slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
 
-    stl_path = os.path.join(os.path.dirname(__name__), r'./assets/STLs/Fuse50mmJet.stl')
-    slice_manager.stl_to_gcode(stl_path=stl_path, name='RCJet50mm_5sub', output_dir=output_dir, subdivisions=5, units='mm',
-                               wall_thickness=14, section_gap=3)
+    stl_path = os.path.join(os.path.dirname(__name__), r'./assets/STLs/FuseMicroDeltaV4Hollow_Test2.stl')
+    #hollow_section_list = [2, 3, 4, 5, 6]
+    slice_manager.stl_to_gcode(stl_path=stl_path, name='MicroDeltaV4_Hollow2', output_dir=output_dir, subdivisions=0, units='mm',
+                               wall_thickness=0, section_gap=3) #hollow_section_list=hollow_section_list)
     # ==================================================================================================================
 
     # r, c = util.util_functions.get_r_and_c_from_num(len(section_list))

@@ -231,6 +231,8 @@ class ToolPath():
             logger.debug('Point1: %s | Point2: %s' % (path1w[idx], path2w[idx]))
             gantry1_point = line.get_extrapolated_point(0, 'z')
             gantry2_point = line.get_extrapolated_point(wire_cutter.wire_length, 'z')
+            if gantry1_point is None or gantry1_point is None:
+                logger.debug('Invalid gantry point generated')
             logger.debug('Ex Point1: %s | Ex Point2: %s' % (gantry1_point, gantry2_point))
             logger.debug('Point 1 Diff: %s | Point 2 Diff: %s' % (gantry1_point-path1w[idx], gantry2_point-path2w[idx]))
             logger.debug('*'*80)
