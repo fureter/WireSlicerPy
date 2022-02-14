@@ -32,7 +32,10 @@
 """
 
 import logging
+import tkinter as tk
 import sys
+
+import gui.window
 
 
 def setup(logger_level=logging.INFO):
@@ -84,3 +87,18 @@ class CustomFormatter(logging.Formatter):
         log_fmt = self.FORMATS.get(record.levelno)
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
+
+
+def setup_gui(main_window):
+    main_window.embedded_windows[gui.window.WindowState.HOME].fill_recent_projects(
+        [('Nebula_V2', 1),
+         ('MicroDeltaV3', 2),
+         ('MicroNebula', 3)]
+    )
+
+
+if __name__ == '__main__':
+    setup()
+    main_window = gui.window.MainWindow('WireSlicerPy', 800, 600)
+    setup_gui(main_window)
+    tk.mainloop()

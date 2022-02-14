@@ -1,0 +1,16 @@
+
+class PrimaryStyle(object):
+    PRIMARY_COLOR = '#293438'
+    SECONDARY_COLOR = '#1d2429'
+    TETRARY_COLOR = '#CC5500'
+    DEBUG_COLOR = '#FF00FF'
+
+    GENERAL_PADDING = 10
+
+    MAIN_FRAME_PAD = 20
+
+    HOME_BTN_SIZE = 90
+    HOME_BTN_PADX = 20
+    HOME_BTN_PADY = 0
+
+    FONT_COLOR = '#FFFFFF'
