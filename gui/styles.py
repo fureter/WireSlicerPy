@@ -3,6 +3,9 @@ class PrimaryStyle(object):
     PRIMARY_COLOR = '#293438'
     SECONDARY_COLOR = '#1d2429'
     TETRARY_COLOR = '#CC5500'
+
+    SELECT_COLOR = '#A0A0FF'
+
     DEBUG_COLOR = '#FF00FF'
 
     GENERAL_PADDING = 10
@@ -14,3 +17,6 @@ class PrimaryStyle(object):
     HOME_BTN_PADY = 0
 
     FONT_COLOR = '#FFFFFF'
+
+    HL_BACKGROUND_COL = '#FFFFFF'
+    HL_BACKGROUND_THICKNESS = 1
