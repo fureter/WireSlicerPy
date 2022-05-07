@@ -135,6 +135,22 @@ class Dat(Parser):
         plt.plot(x, y, 'vr')
         plt.plot(x, y, 'k')
 
+    def plot_points_2d_gui(self, plot1, font_color, tet_color):
+        """plot the x,y coordinates of the dat file to visualize the file. Assumes the x and y dimensions are the ones
+        containing the relevant data, z is assumed empty (not always the case). Function requires a plot object input
+        from matplotlib, this is used with the gui to write to a tkinter canvas.
+        """
+        size = len(self._data)
+        x = np.zeros(size)
+        y = np.zeros(size)
+
+        for i in range(0, size):
+            x[i] = self._data[i]['x']
+            y[i] = self._data[i]['y']
+        plot1.plot(x, y, font_color)
+        plot1.plot(x, y, 'v', markersize=3, color=tet_color)
+        plot1.axis('equal')
+
 
 def is_float(val):
     """Check whether val is cast-able as a float.

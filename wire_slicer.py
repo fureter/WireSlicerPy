@@ -35,7 +35,9 @@ import logging
 import tkinter as tk
 import sys
 
+import project_manager as pm
 import gui.window
+
 
 
 def setup(logger_level=logging.INFO):
@@ -90,15 +92,25 @@ class CustomFormatter(logging.Formatter):
 
 
 def setup_gui(main_window):
+    # Temp fake setup to test
     main_window.embedded_windows[gui.window.WindowState.HOME].fill_recent_projects(
         [('Nebula_V2', 1),
          ('MicroDeltaV3', 2),
          ('MicroNebula', 3)]
     )
 
+# create databases
+project = pm.Project(airfoil_database=pm.AirfoilDatabase(),
+                     output_dir=r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests\gui_test')
 
 if __name__ == '__main__':
+    # setup logger and logger handlers
     setup()
+    # Create the main window
     main_window = gui.window.MainWindow('WireSlicerPy', 800, 600)
+
+    # Fake Initilize the recent projects
     setup_gui(main_window)
+
+    # Start the tk main loop
     tk.mainloop()

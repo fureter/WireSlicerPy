@@ -12,18 +12,10 @@ import serializer
 
 
 class SliceManager(object):
-    """
 
-    :param work_piece: Holds the dimensions for the material stock that is being cut.
-    :type work_piece: prim.WorkPiece
-    """
-
-    def __init__(self, wire_cutter, work_piece):
-        self.wire_cutter = wire_cutter
-        self.work_piece = work_piece
-
-    def stl_to_gcode(self, stl_path, name, output_dir, subdivisions, units, wall_thickness, section_gap=5,
-                     open_nose=False, open_tail=True, hollow_section_list=None):
+    @staticmethod
+    def stl_to_gcode(stl_path, name, output_dir, subdivisions, units, wall_thickness, work_piece, wire_cutter,
+                     section_gap=5, open_nose=False, open_tail=True, hollow_section_list=None):
         """
         Creates G-Code from an STL file by taking slices of the STL.
 
@@ -34,7 +26,7 @@ class SliceManager(object):
         :param str units: Units the stl file are saved as, used to convert to mm.
         """
         logger = logging.getLogger(__name__)
-        self.create_folders(output_dir, name)
+        SliceManager.create_folders(output_dir, name)
         output_dir = os.path.join(output_dir, name)
         cut_stl = comp.STL(file_path=stl_path, units=units)
         cut_stl.mesh.convert_units('mm')
@@ -64,7 +56,7 @@ class SliceManager(object):
         scale = 0.999 if bounding_box[0][used_index] < 0 else 1.001
         extent = bounding_box[0] * normal * scale
         slice_plane = prim.Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
-        spacing = self.work_piece.thickness
+        spacing = work_piece.thickness
         length = int(abs(bounding_box[1][used_index] - bounding_box[0][used_index]) / spacing) + 1
 
         if hollow_section_list is None:
@@ -107,7 +99,7 @@ class SliceManager(object):
             plt.figure(figsize=(16, 9), dpi=320)
             prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C1', scatter=False)
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
-            section.apply_kerf(kerf=self.wire_cutter.kerf, max_kerf=self.wire_cutter.max_kerf)
+            section.apply_kerf(kerf=wire_cutter.kerf, max_kerf=wire_cutter.max_kerf)
             # section.align_start()
             prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C3', scatter=True)
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C4', scatter=True)
@@ -122,9 +114,9 @@ class SliceManager(object):
         serializer.encode(subdivided_list, output_dir=os.path.join(output_dir, 'json'),
                           file_name='subdivided_section_list')
 
-        cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, self.work_piece,
+        cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, work_piece,
                                                                               section_gap=section_gap,
-                                                                              wire_cutter=self.wire_cutter,
+                                                                              wire_cutter=wire_cutter,
                                                                               output_dir=os.path.join(output_dir,
                                                                                                       'plots'))
         serializer.encode(cut_paths, output_dir=os.path.join(output_dir, 'json'),
@@ -138,9 +130,9 @@ class SliceManager(object):
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_cut_path_%s.png' % (name, ind)))
             plt.show()
 
-            tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=self.wire_cutter)
+            tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
             tool_path.zero_forwards_path_for_cutting()
-            gcode = gg.GCodeGenerator(self.wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
+            gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
             gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_gcode_p%s.txt' % (name, ind + 1)),
                                         tool_path=tool_path)
 
@@ -151,11 +143,30 @@ class SliceManager(object):
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_tool_path_%s.png' % (name, ind)))
             plt.show()
 
-    def wing_to_gcode(self, wing, output_dir):
-        self.create_folders(output_dir, wing.name)
-        pass
+    @staticmethod
+    def wing_to_gcode(wing, wire_cutter, output_dir):
+        SliceManager.create_folders(output_dir, wing.name)
 
-    def create_folders(self, output_dir, name):
+        gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
+
+        wing.prep_for_slicing()
+        wing.center_to_wire_cutter(wire_cutter=wire_cutter)
+        cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True)
+        tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
+        tool_path.zero_forwards_path_for_cutting()
+        name = '%s_left.txt' if wing.symmetric else '%s.txt'
+        gcode.create_relative_gcode(file_path=os.path.join(output_dir, name % wing.name), tool_path=tool_path)
+
+        if wing.symmetric:
+            wing.flip_tip_and_root()
+            cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter)
+            tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
+            tool_path.zero_forwards_path_for_cutting()
+            gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_right.txt' % wing.name),
+                                        tool_path=tool_path)
+
+    @staticmethod
+    def create_folders(output_dir, name):
         if not os.path.exists(os.path.join(output_dir, name)):
             os.mkdir(os.path.join(output_dir, name))
         if not os.path.exists(os.path.join(output_dir, name, 'plots')):

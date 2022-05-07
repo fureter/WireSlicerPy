@@ -176,6 +176,9 @@ class PointManip():
         elif method == 6:
             sorted_points = PointManip._realign_180deg(points, center)
             name = 'Realign to 180deg'
+        elif method == 7:
+            sorted_points = PointManip._standard_airfoil_format_sort(points)
+            name = 'Airfoil Sort'
         else:
             raise NotImplementedError
         logger.info('Took %ss to complete %s' % (timeit.default_timer() - start_polar, name))
@@ -214,7 +217,7 @@ class PointManip():
         sorted_points = list()
         # TODO change to input variables
         mid_lines = PointManip.get_mid_lines_from_closed_path(segments=30, points=points)
-        tol = 15.0
+        tol = 20.0
         step = -tol / 2
         check_angle = 90
         left_most_x = 10000000
@@ -363,6 +366,24 @@ class PointManip():
 
         err_msg = 'Error: Points lost | Size Before Sort: %s | Size after Sort %s' % (len(points), len(sorted_points))
         assert len(sorted_points) == len(points), err_msg
+
+        return sorted_points
+
+    @staticmethod
+    def _standard_airfoil_format_sort(points):
+        sorted_points = list()
+        sorted_points.append(points[0])
+
+        rev_ind = 0
+        for ind in range(1, len(points)):
+            point2 = points[ind]
+            if (sorted_points[-1] - point2)**2 > 0.9:
+                rev_ind = ind
+                break
+            else:
+                sorted_points.append(points[ind])
+        if len(sorted_points) != len(points):
+            sorted_points.extend(list(reversed(points[rev_ind:])))
 
         return sorted_points
 

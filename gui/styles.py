@@ -4,7 +4,7 @@ class PrimaryStyle(object):
     SECONDARY_COLOR = '#1d2429'
     TETRARY_COLOR = '#CC5500'
 
-    SELECT_COLOR = '#A0A0FF'
+    SELECT_COLOR = TETRARY_COLOR
 
     DEBUG_COLOR = '#FF00FF'
 
@@ -19,4 +19,4 @@ class PrimaryStyle(object):
     FONT_COLOR = '#FFFFFF'
 
     HL_BACKGROUND_COL = '#FFFFFF'
-    HL_BACKGROUND_THICKNESS = 1
+    HL_BACKGROUND_THICKNESS = 0

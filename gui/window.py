@@ -1,6 +1,17 @@
+import copy
+import logging
+import os
 import tkinter as tk
 import tkinter.ttk as ttk
 
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+
+import geometry.complex as cm
+import geometry.parser as gp
+import slicer.wire_cutter as wc
+import slicer.slice_manager as sm
+import wire_slicer
 from .styles import PrimaryStyle
 
 
@@ -37,9 +48,9 @@ class ScrollableSelectionMenu(tk.Frame):
         self.root = root_context
 
         self.grid_rowconfigure(index=0, weight=1)
-        self.grid_rowconfigure(index=1, weight=38)
+        self.grid_rowconfigure(index=1, weight=50)
         self.grid_rowconfigure(index=2, weight=1)
-        self.grid_columnconfigure(index=0, weight=9)
+        self.grid_columnconfigure(index=0, weight=12)
         self.grid_columnconfigure(index=1, weight=1)
         self.grid_propagate(False)
         self.pack_propagate(False)
@@ -61,9 +72,10 @@ class ScrollableSelectionMenu(tk.Frame):
                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.canvas_frame.grid(row=1, column=0, sticky=tk.NSEW, columnspan=2)
         self.canvas_frame.grid_rowconfigure(index=0, weight=1)
-        self.canvas_frame.grid_columnconfigure(index=0, weight=11)
+        self.canvas_frame.grid_columnconfigure(index=0, weight=29)
         self.canvas_frame.grid_columnconfigure(index=1, weight=1)
         self.canvas_frame.grid_propagate(False)
+        self.canvas_frame.pack_propagate(False)
 
         self.primary_canvas = tk.Canvas(self.canvas_frame,
                                         background=PrimaryStyle.PRIMARY_COLOR, width=65)
@@ -77,7 +89,7 @@ class ScrollableSelectionMenu(tk.Frame):
         self.primary_canvas.create_window(0, 0, window=self.scroll_window, anchor=tk.NW)
 
         self.v_scroll_bar = tk.Scrollbar(self.canvas_frame, orient=tk.VERTICAL, command=self.primary_canvas.yview,
-                                         bg=PrimaryStyle.PRIMARY_COLOR)
+                                         bg=PrimaryStyle.PRIMARY_COLOR, width=11)
         self.v_scroll_bar.grid(row=0, column=1, sticky=tk.NSEW)
         self.v_scroll_bar.lift(self.scroll_window)
 
@@ -103,16 +115,23 @@ class ScrollableSelectionMenu(tk.Frame):
     def _add_selection(self):
         index = len(self.items)
         self.items.append(ToggleButton(self.scroll_window, top_level_scroll=self, index=index,
-                                       width=65, height=65, text='TEST:%s' % index,
+                                       width=72, height=72, text='TEST:%s' % index,
                                        bg=PrimaryStyle.SECONDARY_COLOR,
                                        fg=PrimaryStyle.FONT_COLOR))
         self.items[-1].pack(side=tk.TOP, fill=None, anchor=tk.CENTER)
-        if self.curr_select is not None:
-            self.items[self.curr_select].button.configure(bg=PrimaryStyle.SECONDARY_COLOR)
-            self.items[self.curr_select].button.update()
+
+        self._handle_prev_selected()
+
         self.curr_select = len(self.items) - 1
         self.items[self.curr_select].button.config(background=PrimaryStyle.SELECT_COLOR)
         self.items[self.curr_select].button.update()
+        self.root.set_visibility(visible=True)
+
+        self.root.add_item()
+        name = self.root.update_gui(index=self.curr_select)
+        if name is not None:
+            self.items[self.curr_select].button.configure(text=name)
+            self.items[self.curr_select].button.update()
 
     def _delete_selection(self):
         if self.curr_select is not None:
@@ -120,23 +139,38 @@ class ScrollableSelectionMenu(tk.Frame):
             self.items.remove(tmp)
             tmp.destroy()
             del tmp
+            self.root.delete_item(index=self.curr_select)
             self.curr_select = None
+            self.root.set_visibility(visible=False)
             self.scroll_window.update()
 
         self._recalc_indexes()
+        self.root.update_gui(index=self.curr_select)
 
     def _recalc_indexes(self):
         for ind in range(len(self.items)):
             self.items[ind].index = ind
 
     def select(self, index):
-        if self.curr_select is not None:
-            self.items[self.curr_select].button.configure(bg=PrimaryStyle.SECONDARY_COLOR)
-            self.items[self.curr_select].button.update()
+        self._handle_prev_selected()
         self.curr_select = index
         self.items[self.curr_select].button.configure(bg=PrimaryStyle.SELECT_COLOR)
         self.items[self.curr_select].button.update()
+        self.root.set_visibility(visible=True)
         print('selected button at index: %s' % index)
+        name = self.root.update_gui(index=self.curr_select)
+        if name is not None:
+            self.items[self.curr_select].button.configure(text=name)
+            self.items[self.curr_select].button.update()
+
+    def _handle_prev_selected(self):
+        if self.curr_select is not None:
+            self.items[self.curr_select].button.configure(bg=PrimaryStyle.SECONDARY_COLOR)
+            self.items[self.curr_select].button.update()
+            name = self.root.get_curr_name()
+            if name is not None:
+                self.items[self.curr_select].button.configure(text=name)
+                self.items[self.curr_select].button.update()
 
     def _bound_to_mousewheel(self, event):
         self.primary_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
@@ -195,6 +229,13 @@ class MainWindow(tk.Tk):
 
         self.resizable(False, False)
 
+        self.wings = list()
+        self.machines = list()
+        self.cad_imports = list()
+
+    def get_window_instance(self, window):
+        return self.embedded_windows[window]
+
     def switch_embedded_window(self, window_enum):
         self.embedded_windows[window_enum].tkraise()
         print('Changing Window')
@@ -230,7 +271,7 @@ class EmbeddedWindow(tk.Frame):
     def __init__(self, master, window_type, root):
         super(EmbeddedWindow, self).__init__(master, background=PrimaryStyle.PRIMARY_COLOR)
         self.window_type = window_type
-        self._root = root
+        self.root = root
 
 
 class HomeWindow(EmbeddedWindow):
@@ -240,6 +281,7 @@ class HomeWindow(EmbeddedWindow):
         self.grid_columnconfigure(index=0, weight=5)
         self.grid_columnconfigure(index=1, weight=1)
         self.grid_rowconfigure(index=0, weight=1)
+        self.grid_propagate(False)
 
         self.left_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR)
         self.left_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(PrimaryStyle.MAIN_FRAME_PAD, 0),
@@ -265,19 +307,19 @@ class HomeWindow(EmbeddedWindow):
         self.db_frame = tk.Frame(self.left_top_frame, width=btn_size, height=btn_size)
 
         self.machine_button = tk.Button(self.mach_frame, text="CNC Wire \nCutter",
-                                        command=lambda: self._root.switch_embedded_window(WindowState.MACHINE_SETUP),
+                                        command=lambda: self.root.switch_embedded_window(WindowState.MACHINE_SETUP),
                                         bg=PrimaryStyle.SECONDARY_COLOR,
                                         fg=PrimaryStyle.FONT_COLOR)
         self.wing_button = tk.Button(self.wing_frame, text="Wing \nDesigner",
-                                     command=lambda: self._root.switch_embedded_window(WindowState.WING),
+                                     command=lambda: self.root.switch_embedded_window(WindowState.WING),
                                      bg=PrimaryStyle.SECONDARY_COLOR,
                                      fg=PrimaryStyle.FONT_COLOR)
         self.body_button = tk.Button(self.body_frame, text="CAD \nImport",
-                                     command=lambda: self._root.switch_embedded_window(WindowState.CAD),
+                                     command=lambda: self.root.switch_embedded_window(WindowState.CAD),
                                      bg=PrimaryStyle.SECONDARY_COLOR,
                                      fg=PrimaryStyle.FONT_COLOR)
         self.database_button = tk.Button(self.db_frame, text="Edit \nDatabase",
-                                         command=lambda: self._root.switch_embedded_window(WindowState.DATABASE),
+                                         command=lambda: self.root.switch_embedded_window(WindowState.DATABASE),
                                          bg=PrimaryStyle.SECONDARY_COLOR,
                                          fg=PrimaryStyle.FONT_COLOR)
 
@@ -343,30 +385,355 @@ class MachineWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(MachineWindow, self).__init__(master, WindowState.MACHINE_SETUP, root)
 
-        self.label = ttk.Label(master=self, text='CNC WireCutter')
-        self.label.grid()
+        self.machines = list()
+        self.machines.append(wc.WireCutter(name='short', wire_length=245, max_height=300.0, max_speed=150.0,
+                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
+        self.machines.append(wc.WireCutter(name='baseline', wire_length=500, max_height=300.0, max_speed=150.0,
+                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
+        self.machines.append(wc.WireCutter(name='extended', wire_length=1000, max_height=300.0, max_speed=150.0,
+                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
+
+        self.grid_rowconfigure(index=0, weight=100)
+        self.grid_columnconfigure(index=0, weight=1)
+        self.grid_columnconfigure(index=1, weight=8)
+        self.grid_propagate(False)
+
+        self.primary_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.primary_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.primary_frame.grid_columnconfigure(index=0, weight=1)
+        self.primary_frame.grid_columnconfigure(index=1, weight=3)
+        self.primary_frame.grid_rowconfigure(index=0, weight=1)
+        self.primary_frame.grid_propagate(False)
+        self.primary_frame.pack_propagate(False)
+
+        self.primary_frame.grid_rowconfigure(index=0, weight=1)
+        self.primary_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.set_visibility(False)
+
+        self.scroll_frame = ScrollableSelectionMenu(self, self)
+        self.scroll_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self._create_left_frame()
+
+        self._create_right_frame()
+
+    def set_visibility(self, visible):
+        if visible:
+            self.primary_frame.grid()
+        else:
+            self.primary_frame.grid_remove()
+
+    def get_machine(self, tag):
+        ret_val = None
+        for machine in self.machines:
+            if machine.name == tag:
+                ret_val = machine
+        return ret_val
+
+    def _create_left_frame(self):
+        self.left_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+
+        self.left_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.left_frame.grid_rowconfigure(index=0, weight=2)
+        self.left_frame.grid_rowconfigure(index=1, weight=2)
+        self.left_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.top_left_frame = tk.Frame(self.left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.top_left_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.top_left_frame.grid_rowconfigure(index=0, weight=1)
+        self.top_left_frame.grid_columnconfigure(index=0, weight=14)
+        self.top_left_frame.grid_columnconfigure(index=1, weight=1)
+
+        # ==============================================================================================================
+        # Left Top Frame
+        self.left_top_frame = tk.Frame(self.top_left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.left_top_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.left_top_frame.grid_rowconfigure(index=0, weight=1)
+        self.left_top_frame.grid_rowconfigure(index=1, weight=1)
+        self.left_top_frame.grid_rowconfigure(index=2, weight=1)
+        self.left_top_frame.grid_rowconfigure(index=3, weight=1)
+        self.left_top_frame.grid_rowconfigure(index=4, weight=1)
+        self.left_top_frame.grid_rowconfigure(index=5, weight=1)
+        self.left_top_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.name_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR, text='Name:')
+        self.name_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                             pady=(PrimaryStyle.GENERAL_PADDING / 2, PrimaryStyle.GENERAL_PADDING / 4))
+        self.name_frame.pack_propagate(False)
+
+        self.name_text = tk.Text(self.name_frame)
+        self.name_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.wire_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR, text='Wire Length (mm):')
+        self.wire_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                             pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4))
+        self.wire_frame.pack_propagate(False)
+
+        self.wire_text = tk.Text(self.wire_frame)
+        self.wire_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.height_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                          fg=PrimaryStyle.FONT_COLOR, text='Max Height (mm):')
+        self.height_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                               pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4))
+        self.height_frame.pack_propagate(False)
+
+        self.height_text = tk.Text(self.height_frame)
+        self.height_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                              padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.depth_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                         fg=PrimaryStyle.FONT_COLOR, text='Max Depth (mm):')
+        self.depth_frame.grid(row=3, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                              pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4))
+        self.depth_frame.pack_propagate(False)
+
+        self.depth_text = tk.Text(self.depth_frame)
+        self.depth_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                             padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.fast_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR, text='Fast Speed (mm/min):')
+        self.fast_frame.grid(row=4, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                             pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4))
+        self.fast_frame.pack_propagate(False)
+
+        self.fast_text = tk.Text(self.fast_frame)
+        self.fast_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.slow_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR, text='Slow Speed (mm/min):')
+        self.slow_frame.grid(row=5, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
+                             pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2))
+        self.slow_frame.pack_propagate(False)
+
+        self.slow_text = tk.Text(self.slow_frame)
+        self.slow_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        # ==============================================================================================================
+        # Right Top Frame
+        self.right_top_frame = tk.Frame(self.top_left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.right_top_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.right_top_frame.grid_rowconfigure(index=0, weight=2)
+        self.right_top_frame.grid_rowconfigure(index=1, weight=1)
+        self.right_top_frame.grid_rowconfigure(index=2, weight=2)
+        self.right_top_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.axis_def_frame = tk.LabelFrame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR,
+                                            text='Axis Definitions')
+        self.axis_def_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 2,
+                                 padx=(0, PrimaryStyle.GENERAL_PADDING / 2))
+        self.axis_def_frame.grid_rowconfigure(index=0, weight=1)
+        self.axis_def_frame.grid_rowconfigure(index=1, weight=1)
+        self.axis_def_frame.grid_columnconfigure(index=0, weight=1)
+        self.axis_def_frame.grid_columnconfigure(index=1, weight=1)
+
+        self.x1_frame = tk.LabelFrame(self.axis_def_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                      fg=PrimaryStyle.FONT_COLOR,
+                                      text='X1:')
+        self.x1_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=(2, 1),
+                           padx=(2, 1))
+        self.x1_frame.pack_propagate(False)
+        self.x1_text = tk.Text(self.x1_frame)
+        self.x1_text.insert('end', 'X')
+        self.x1_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.y1_frame = tk.LabelFrame(self.axis_def_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                      fg=PrimaryStyle.FONT_COLOR,
+                                      text='Y1:')
+        self.y1_frame.grid(row=0, column=1, sticky=tk.NSEW, pady=(2, 1),
+                           padx=(1, 2))
+        self.y1_frame.pack_propagate(False)
+        self.y1_text = tk.Text(self.y1_frame)
+        self.y1_text.insert('end', 'Y')
+        self.y1_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.x2_frame = tk.LabelFrame(self.axis_def_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                      fg=PrimaryStyle.FONT_COLOR,
+                                      text='X2:')
+        self.x2_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=(1, 2),
+                           padx=(2, 1))
+        self.x2_frame.pack_propagate(False)
+        self.x2_text = tk.Text(self.x2_frame)
+        self.x2_text.insert('end', 'U')
+        self.x2_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.y2_frame = tk.LabelFrame(self.axis_def_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                      fg=PrimaryStyle.FONT_COLOR,
+                                      text='Y2:')
+        self.y2_frame.grid(row=1, column=1, sticky=tk.NSEW, pady=(1, 2),
+                           padx=(1, 2))
+        self.y2_frame.pack_propagate(False)
+        self.y2_text = tk.Text(self.y2_frame)
+        self.y2_text.insert('end', 'Z')
+        self.y2_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.feed_frame = tk.LabelFrame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR,
+                                        text='Feed Rate Mode')
+        self.feed_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 2,
+                             padx=(0, PrimaryStyle.GENERAL_PADDING / 2))
+        self.feed_frame.grid_rowconfigure(index=0, weight=1)
+        self.feed_frame.grid_rowconfigure(index=1, weight=1)
+        self.feed_frame.grid_rowconfigure(index=2, weight=1)
+        self.feed_frame.grid_rowconfigure(index=3, weight=1)
+        self.feed_frame.grid_rowconfigure(index=4, weight=1)
+        self.feed_frame.grid_columnconfigure(index=1, weight=1)
+        self.feed_frame.grid_propagate(False)
+
+        self.inv_time_check = tk.Checkbutton(self.feed_frame, text='Inverse Time',
+                                             background=PrimaryStyle.SECONDARY_COLOR,
+                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                             fg=PrimaryStyle.FONT_COLOR)
+        self.inv_time_check.grid(row=0, column=0, sticky=tk.NW)
+
+        self.upt_check = tk.Checkbutton(self.feed_frame, text='Units/Min',
+                                        background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.upt_check.grid(row=1, column=0, sticky=tk.NW)
+
+        self.option_frame = tk.LabelFrame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                          fg=PrimaryStyle.FONT_COLOR,
+                                          text='Options')
+        self.option_frame.grid(row=2, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 2,
+                               padx=(0, PrimaryStyle.GENERAL_PADDING / 2))
+        self.option_frame.grid_rowconfigure(index=0, weight=1)
+        self.option_frame.grid_rowconfigure(index=1, weight=1)
+        self.option_frame.grid_columnconfigure(index=1, weight=1)
+        self.option_frame.grid_propagate(False)
+
+        self.default_check = tk.Checkbutton(self.option_frame, text='Default',
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+        self.default_check.grid(row=0, column=0, sticky=tk.NW)
+
+        # ==============================================================================================================
+        # Bottom Frame
+        self.bot_left_frame = tk.Frame(self.left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.bot_left_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        self.bot_left_frame.grid_rowconfigure(index=0, weight=1)
+        self.bot_left_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.start_up_gcode = tk.LabelFrame(self.bot_left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR,
+                                            text='Machine Startup G-Code')
+        self.start_up_gcode.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING,
+                                 padx=(PrimaryStyle.GENERAL_PADDING, PrimaryStyle.GENERAL_PADDING / 2))
+        self.start_up_gcode.pack_propagate(False)
+
+        self.gcode_text_field = tk.Text(self.start_up_gcode, background=PrimaryStyle.SECONDARY_COLOR, width=0,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.gcode_text_field.config(wrap=tk.WORD)
+
+        self.gcode_text_field.insert('end', 'G17\nG21')
+        self.gcode_text_field.pack(fill=tk.BOTH, anchor=tk.NW, expand=True, pady=PrimaryStyle.GENERAL_PADDING,
+                                   padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+    def _create_right_frame(self):
+        self.right_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+
+        self.right_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.right_frame.grid_columnconfigure(index=0, weight=1)
+        self.right_frame.grid_rowconfigure(index=0, weight=1)
+        self.right_frame.pack_propagate(False)
+        self.right_frame.grid_propagate(False)
+
+        self.gantry_photo = tk.PhotoImage(file=os.path.join(r'assets\gui\gantries.png'), width=900, height=900)
+        self.gantry_photo = self.gantry_photo.subsample(2)
+        # self.photo_label = tk.Label(self.right_frame, image=self.gantry_photo)
+        # self.photo_label.grid(row=0, column=0, sticky=tk.NSEW)
 
 
 class WingWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(WingWindow, self).__init__(master, WindowState.WING, root)
 
+        self.wings = list()
+        self.curr_selected = None
+
+        self.logger = logging.getLogger(__name__)
+
         self.grid_rowconfigure(index=0, weight=100)
         self.grid_columnconfigure(index=0, weight=1)
         self.grid_columnconfigure(index=1, weight=8)
+        self.grid_propagate(False)
 
         self.primary_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
-                                      highlightbackground='#FFFFFF',
-                                      highlightthickness=1)
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.primary_frame.grid(row=0, column=1, sticky=tk.NSEW)
 
         self.primary_frame.grid_rowconfigure(index=0, weight=1)
         self.primary_frame.grid_columnconfigure(index=0, weight=1)
+        self.primary_frame.grid_propagate(False)
 
-        self.scroll_frame = ScrollableSelectionMenu(self, root)
+        self.primary_frame.grid_remove()
+
+        self.scroll_frame = ScrollableSelectionMenu(self, self)
         self.scroll_frame.grid(row=0, column=0, sticky=tk.NSEW)
 
         self._create_top_frame()
+
+    def set_visibility(self, visible):
+        if visible:
+            self.primary_frame.grid()
+        else:
+            self.primary_frame.grid_remove()
 
     def _create_top_frame(self):
         self.top_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
@@ -390,34 +757,69 @@ class WingWindow(EmbeddedWindow):
 
         self.top_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, background=PrimaryStyle.SECONDARY_COLOR,
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.top_airfoil_frame.grid(row=0, column=0, sticky=tk.NSEW)
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   text='Section XY:', fg=PrimaryStyle.FONT_COLOR)
+        self.top_airfoil_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2, 0),
+                                    padx=(PrimaryStyle.GENERAL_PADDING / 2, 0))
 
         self.bot_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, background=PrimaryStyle.SECONDARY_COLOR,
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.bot_airfoil_frame.grid(row=1, column=0, sticky=tk.NSEW)
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   text='Section UZ:', fg=PrimaryStyle.FONT_COLOR)
+        self.bot_airfoil_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=(0, PrimaryStyle.GENERAL_PADDING / 2),
+                                    padx=(PrimaryStyle.GENERAL_PADDING / 2, 0))
 
         # ==============================================================================================================
         # RIGHT TOP
-        self.wing_setting_frame = WingWindow.WingSettingFrame(self.top_frame, root=self,
+
+        self.right_top_frame = tk.Frame(self.top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.right_top_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.right_top_frame.grid_rowconfigure(index=0, weight=7)
+        self.right_top_frame.grid_rowconfigure(index=1, weight=5)
+        self.right_top_frame.grid_rowconfigure(index=2, weight=1)
+        self.right_top_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.wing_setting_frame = WingWindow.WingSettingFrame(self.right_top_frame, root=self,
                                                               background=PrimaryStyle.SECONDARY_COLOR,
                                                               highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                               highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.wing_setting_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.wing_setting_frame.grid(row=0, column=0, sticky=tk.NSEW)
 
-    def _create_bot_frame(self):
-        self.bot_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
-                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.bot_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        # ==============================================================================================================
+        # Spar Frame
+        self.spar_frame = WingWindow.SparWindow(self.right_top_frame, root=self,
+                                                background=PrimaryStyle.SECONDARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.spar_frame.grid(row=1, column=0, sticky=tk.NSEW)
 
-    class AirfoilFrame(tk.Frame):
+        # ==========================================================================================================
+        # Slicer buttons
+        self.slice_btn_frame = tk.Frame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.slice_btn_frame.grid(row=2, column=0, sticky=tk.NSEW)
+        self.slice_btn_frame.grid_rowconfigure(index=0, weight=1)
+        self.slice_btn_frame.grid_columnconfigure(index=0, weight=1)
+        self.slice_btn_frame.grid_columnconfigure(index=1, weight=1)
+        self.slice_btn_frame.grid_propagate(False)
+
+        self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected', command=self.slice_selected)
+        self.slice_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                            pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll', command=self.slice_all)
+        self.slice_all_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+    class AirfoilFrame(tk.LabelFrame):
         def __init__(self, master, root, **kwargs):
             super(WingWindow.AirfoilFrame, self).__init__(master, **kwargs)
             self.root = root
 
-            self.grid_rowconfigure(index=0, weight=4)
+            self.grid_rowconfigure(index=0, weight=5)
             self.grid_rowconfigure(index=1, weight=1)
             self.grid_columnconfigure(index=0, weight=1)
 
@@ -429,10 +831,16 @@ class WingWindow(EmbeddedWindow):
             self.top_frame.grid_columnconfigure(index=0, weight=1)
             self.top_frame.grid_propagate(False)
 
-            self.airfoil_canvas = tk.Canvas(self.top_frame, background=PrimaryStyle.PRIMARY_COLOR,
-                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.airfoil_canvas.grid(row=0, column=0, sticky=tk.NSEW)
+            self.airfoil_frame = tk.Frame(self.top_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+            self.airfoil_frame.grid(row=0, column=0, sticky=tk.NSEW)
+            self.airfoil_frame.pack_propagate(False)
+
+            self.draw_figure = Figure(figsize=(5, 2.2), dpi=100)
+            self.draw_figure.set_facecolor(PrimaryStyle.SECONDARY_COLOR)
+            self.draw_canvas = FigureCanvasTkAgg(self.draw_figure, master=self.airfoil_frame)
+            self.draw_canvas.get_tk_widget().pack(expand=True)
 
             self.bot_frame = tk.Frame(self, background=PrimaryStyle.SECONDARY_COLOR,
                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
@@ -480,14 +888,50 @@ class WingWindow(EmbeddedWindow):
             self.selected_airfoil.set('Select Airfoil')
 
             self.airfoil_option_menu = ttk.Combobox(self.airfoil_label_frame, textvariable=self.selected_airfoil,
-                                                    values=self.get_airfoil_options())
+                                                    values=self.get_airfoil_options(), state='readonly')
             self.airfoil_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 20), pady=1)
+
+            self.airfoil_option_menu.bind('<<ComboboxSelected>>', self.plot_airfoil)
+            # self.plot_airfoil()
 
         def get_airfoil_options(self):
             airfoils = list()
-            for i in range(1, 100):
-                airfoils.append('Airfoil%s' % i)
+            airfoils.extend(wire_slicer.project.airfoil_database.airfoils.keys())
             return airfoils
+
+        def plot_airfoil(self, event):
+            print(event)
+            airfoil_selection = self.airfoil_option_menu.get()
+            self.draw_figure.clear()
+            self.draw_figure.clf()
+            if airfoil_selection not in ['Select Airfoil', '', ' ']:
+                print('Plotting Airfoil')
+
+                plot_1 = self.draw_figure.add_subplot(111)
+                plot_1.set_facecolor(PrimaryStyle.SECONDARY_COLOR)
+                plot_1.spines['bottom'].set_color(PrimaryStyle.FONT_COLOR)
+                plot_1.spines['top'].set_color(PrimaryStyle.FONT_COLOR)
+                plot_1.spines['left'].set_color(PrimaryStyle.FONT_COLOR)
+                plot_1.spines['right'].set_color(PrimaryStyle.FONT_COLOR)
+                for label in plot_1.xaxis.get_ticklabels():
+                    label.set_color(PrimaryStyle.FONT_COLOR)
+                for label in plot_1.yaxis.get_ticklabels():
+                    label.set_color(PrimaryStyle.FONT_COLOR)
+                for line in plot_1.yaxis.get_ticklines():
+                    line.set_color(PrimaryStyle.FONT_COLOR)
+                for line in plot_1.xaxis.get_ticklines():
+                    line.set_color(PrimaryStyle.FONT_COLOR)
+                for line in plot_1.xaxis.get_gridlines():
+                    line.set_color(PrimaryStyle.FONT_COLOR)
+
+                for line in plot_1.yaxis.get_gridlines():
+                    line.set_color(PrimaryStyle.FONT_COLOR)
+                    line.set_markeredgewidth(8)
+
+                airfoil = gp.Dat(data=wire_slicer.project.airfoil_database.airfoils[airfoil_selection])
+                airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR)
+
+            self.draw_canvas.draw()
 
     class WingSettingFrame(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -495,37 +939,47 @@ class WingWindow(EmbeddedWindow):
             self.root = root
 
             self.grid(row=0, column=1, sticky=tk.NSEW)
-            self.grid_rowconfigure(index=0, weight=4)
-            self.grid_rowconfigure(index=1, weight=1)
-            self.grid_rowconfigure(index=2, weight=1)
+            self.grid_rowconfigure(index=0, weight=1)
             self.grid_columnconfigure(index=0, weight=1)
 
             self.wing_field_frame = tk.Frame(self, background=PrimaryStyle.SECONDARY_COLOR,
                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
             self.wing_field_frame.grid(row=0, column=0, sticky=tk.NSEW)
-            self.wing_field_frame.grid_rowconfigure(index=0, weight=5)
-            self.wing_field_frame.grid_rowconfigure(index=1, weight=5)
-            self.wing_field_frame.grid_rowconfigure(index=2, weight=5)
-            self.wing_field_frame.grid_rowconfigure(index=3, weight=1)
-            self.wing_field_frame.grid_rowconfigure(index=4, weight=1)
+            self.wing_field_frame.grid_rowconfigure(index=0, weight=3)
+            self.wing_field_frame.grid_rowconfigure(index=1, weight=3)
+            self.wing_field_frame.grid_rowconfigure(index=2, weight=3)
+            self.wing_field_frame.grid_rowconfigure(index=3, weight=3)
+            self.wing_field_frame.grid_rowconfigure(index=4, weight=4)
+            self.wing_field_frame.grid_rowconfigure(index=5, weight=3)
             self.wing_field_frame.grid_columnconfigure(index=0, weight=1)
+            self.wing_field_frame.grid_propagate(False)
 
             self.name_label_frame = tk.LabelFrame(self.wing_field_frame, text='Name:',
                                                   background=PrimaryStyle.SECONDARY_COLOR,
                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                   fg=PrimaryStyle.FONT_COLOR, width=5)
-            self.name_label_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
-                                       pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.name_label_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                       pady=(PrimaryStyle.GENERAL_PADDING / 2, PrimaryStyle.GENERAL_PADDING / 4))
+            self.name_label_frame.pack_propagate(False)
+
+            self.name_text = tk.Text(self.name_label_frame)
+            self.name_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4),
+                                padx=PrimaryStyle.GENERAL_PADDING / 2)
 
             self.span_label_frame = tk.LabelFrame(self.wing_field_frame, text='Span (mm):',
                                                   background=PrimaryStyle.SECONDARY_COLOR,
                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                   fg=PrimaryStyle.FONT_COLOR, width=10)
-            self.span_label_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
-                                       pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.span_label_frame.grid(row=1, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                       pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.span_label_frame.pack_propagate(False)
+
+            self.span_text = tk.Text(self.span_label_frame)
+            self.span_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                padx=PrimaryStyle.GENERAL_PADDING / 2)
 
             self.washout_label_frame = tk.LabelFrame(self.wing_field_frame, text='Washout (deg):',
                                                      background=PrimaryStyle.SECONDARY_COLOR,
@@ -533,62 +987,414 @@ class WingWindow(EmbeddedWindow):
                                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                      fg=PrimaryStyle.FONT_COLOR, width=14)
             self.washout_label_frame.grid(row=2, column=0, sticky=tk.NSEW,
-                                          padx=PrimaryStyle.GENERAL_PADDING,
-                                          pady=PrimaryStyle.GENERAL_PADDING / 2)
+                                          padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                          pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.washout_label_frame.pack_propagate(False)
 
-            self.gen_left_right_frame = tk.Frame(self.wing_field_frame,
-                                                 background=PrimaryStyle.SECONDARY_COLOR,
-                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.gen_left_right_frame.grid(row=3, column=0, sticky=tk.NSEW)
-            self.gen_left_right_frame.grid_rowconfigure(index=0, weight=1)
-            self.gen_left_right_frame.grid_columnconfigure(index=0, weight=1)
-            self.gen_left_right_frame.pack_propagate(False)
+            self.washout_text = tk.Text(self.washout_label_frame)
+            self.washout_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                   padx=PrimaryStyle.GENERAL_PADDING / 2)
 
-            self.gen_left_right = tk.Checkbutton(self.gen_left_right_frame, text='Generate Left/Right G-Code',
+            self.sweep_label_frame = tk.LabelFrame(self.wing_field_frame, text='Sweep (deg):',
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
+                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   fg=PrimaryStyle.FONT_COLOR, width=14)
+            self.sweep_label_frame.grid(row=3, column=0, sticky=tk.NSEW,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                        pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.sweep_label_frame.pack_propagate(False)
+
+            self.sweep_text = tk.Text(self.sweep_label_frame)
+            self.sweep_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                 padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.options_frame = tk.LabelFrame(self.wing_field_frame,
+                                               background=PrimaryStyle.SECONDARY_COLOR,
+                                               highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                               highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                               width=20, text='Options:', fg=PrimaryStyle.FONT_COLOR)
+            self.options_frame.grid(row=4, column=0, sticky=tk.NSEW,
+                                    padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                    pady=PrimaryStyle.GENERAL_PADDING / 4)
+            self.options_frame.grid_rowconfigure(index=0, weight=1)
+            self.options_frame.grid_rowconfigure(index=1, weight=1)
+            self.options_frame.grid_columnconfigure(index=0, weight=1)
+            self.options_frame.grid_propagate(False)
+
+            self.gen_lr_var = tk.IntVar(self)
+            self.gen_left_right = tk.Checkbutton(self.options_frame, text='Create Left/Right', onvalue=1, offvalue=0,
+                                                 variable=self.gen_lr_var, command=self.check_gen_lr,
                                                  background=PrimaryStyle.SECONDARY_COLOR,
+                                                 selectcolor=PrimaryStyle.PRIMARY_COLOR,
                                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
-                                                 fg=PrimaryStyle.FONT_COLOR, width=26)
-            self.gen_left_right.pack(anchor=tk.NW)
+                                                 fg=PrimaryStyle.FONT_COLOR)
+            self.gen_left_right.grid(row=0, column=0, sticky=tk.W)
 
-            self.align_led_edge_frame = tk.Frame(self.wing_field_frame,
-                                                 background=PrimaryStyle.SECONDARY_COLOR,
-                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.align_led_edge_frame.grid(row=4, column=0, sticky=tk.NSEW)
-            self.align_led_edge_frame.grid_rowconfigure(index=0, weight=1)
-            self.align_led_edge_frame.grid_columnconfigure(index=0, weight=1)
-            self.align_led_edge_frame.pack_propagate(False)
-
-            self.align_led_edge = tk.Checkbutton(self.align_led_edge_frame, text='Align leading edge to wire',
-                                                 background=PrimaryStyle.SECONDARY_COLOR,
+            self.align_led_var = tk.IntVar(self)
+            self.align_led_edge = tk.Checkbutton(self.options_frame, text='Align to wire', variable=self.align_led_var,
+                                                 onvalue=1, offvalue=0,
+                                                 background=PrimaryStyle.SECONDARY_COLOR, command=self.check_align_led,
+                                                 selectcolor=PrimaryStyle.PRIMARY_COLOR,
                                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
-                                                 fg=PrimaryStyle.FONT_COLOR, width=26)
-            self.align_led_edge.pack(anchor=tk.NW)
+                                                 fg=PrimaryStyle.FONT_COLOR)
+            self.align_led_edge.grid(row=1, column=0, sticky=tk.W)
 
-            self.slice_btn_frame = tk.Frame(self, background=PrimaryStyle.SECONDARY_COLOR,
-                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.slice_btn_frame.grid(row=1, column=0, sticky=tk.NSEW)
-
-            self.sel_cnc_machine_frame = tk.LabelFrame(self, background=PrimaryStyle.SECONDARY_COLOR,
+            self.sel_cnc_machine_frame = tk.LabelFrame(self.wing_field_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                        fg=PrimaryStyle.FONT_COLOR,
                                                        text='Select CNC Machine:')
-            self.sel_cnc_machine_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING,
-                                            pady=PrimaryStyle.GENERAL_PADDING)
+            self.sel_cnc_machine_frame.grid(row=5, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                            pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2))
+            self.sel_cnc_machine_frame.grid_propagate(False)
 
+            self.selected_machine = tk.StringVar()
+            self.selected_machine.set('Select CNC Machine')
+
+            self.cnc_machine_option_menu = ttk.Combobox(self.sel_cnc_machine_frame, textvariable=self.selected_machine,
+                                                        values=[])
+            self.cnc_machine_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 20), pady=1)
+
+        def check_align_led(self):
+            # self.align_led_var.set(not self.align_led_var.get())
+            print('check align led set to: %s' % self.align_led_var.get())
+            if self.align_led_var.get() == 1:
+                self.align_led_edge.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+            else:
+                self.align_led_edge.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+
+        def check_gen_lr(self):
+            # self.gen_lr_var.set(not self.gen_lr_var.get())
+            print('check gen lr set to: %s' % self.gen_lr_var.get())
+            if self.gen_lr_var.get() == 1:
+                self.gen_left_right.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+            else:
+                self.gen_left_right.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+
+        def get_machine_options(self):
+            machines = list()
+            for machine in self.root.root.get_window_instance(window=WindowState.MACHINE_SETUP).machines:
+                machines.append(machine.name)
+            return machines
+
+    class SparWindow(tk.Frame):
+        def __init__(self, master, root, **kwargs):
+            super(WingWindow.SparWindow, self).__init__(master, **kwargs)
+            self.root = root
+
+            self.grid_rowconfigure(index=0, weight=1)
+            self.grid_columnconfigure(index=0, weight=1)
+
+            self.spar_frame = tk.LabelFrame(self, text='Spars', background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+            self.spar_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                 padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                 pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+    def save_wing_settings(self):
+        if self.curr_selected is not None:
+            wing = self.wings[self.curr_selected]
+            wing.name = self.wing_setting_frame.name_text.get("1.0", "end-1c")
+
+            wing.machine_tag = self.wing_setting_frame.cnc_machine_option_menu.get()
+
+            tmp_span = self.wing_setting_frame.span_text.get("1.0", "end-1c")
+            tmp_washout = self.wing_setting_frame.washout_text.get("1.0", "end-1c")
+            tmp_sweep = self.wing_setting_frame.sweep_text.get("1.0", "end-1c")
+
+            tmp_root_chord = self.top_airfoil_frame.chord_text_box.get("1.0", "end-1c")
+            tmp_tip_chord = self.bot_airfoil_frame.chord_text_box.get("1.0", "end-1c")
+
+            tmp_root_kerf = self.top_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
+            tmp_tip_kerf = self.bot_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
+
+            try:
+                wing.span = float(tmp_span)
+                wing.washout = float(tmp_washout)
+                wing.sweep = float(tmp_sweep)
+                wing.tip_chord = float(tmp_tip_chord)
+                wing.root_chord = float(tmp_root_chord)
+                wing.tip_kerf = float(tmp_tip_kerf)
+                wing.root_kerf = float(tmp_root_kerf)
+            except ValueError:
+                self.logger.info('Warning: One of the wing settings is not convertible to a number')
+
+            wing.tip_airfoil_tag = self.bot_airfoil_frame.airfoil_option_menu.get()
+            wing.root_airfoil_tag = self.top_airfoil_frame.airfoil_option_menu.get()
+            if wing.tip_airfoil_tag != 'Select Airfoil':
+                wing.tip_airfoil = copy.deepcopy(wire_slicer.project.airfoil_database.airfoils[wing.tip_airfoil_tag])
+            if wing.root_airfoil_tag != 'Select Airfoil':
+                wing.root_airfoil = copy.deepcopy(wire_slicer.project.airfoil_database.airfoils[wing.root_airfoil_tag])
+
+            wing.symmetric = True if self.wing_setting_frame.gen_lr_var.get() == 1 else False
+            wing.align_with_le = True if self.wing_setting_frame.align_led_var.get() == 1 else False
+
+    def add_item(self):
+        self.wings.append(cm.WingSegment(name='', logger=self.logger))
+
+    def delete_item(self, index):
+        tmp = self.wings[index]
+        self.wings.remove(tmp)
+        del tmp
+
+    def update_gui(self, index):
+        # Index is only none if we are removing an entry, do not save wing settings if we are deleting
+        ret_val = None
+        if index is None:
+            self.set_visibility(False)
+        else:
+            self.save_wing_settings()
+            self.curr_selected = index
+            self.logger.info('gui wing index: %s', index)
+            wing = self.wings[self.curr_selected]
+
+            # Clear the text fields
+            self.wing_setting_frame.name_text.delete(1.0, "end")
+            self.wing_setting_frame.span_text.delete(1.0, "end")
+            self.wing_setting_frame.washout_text.delete(1.0, "end")
+            self.wing_setting_frame.sweep_text.delete(1.0, "end")
+            self.top_airfoil_frame.chord_text_box.delete(1.0, "end")
+            self.bot_airfoil_frame.chord_text_box.delete(1.0, "end")
+            self.top_airfoil_frame.kerf_text_box.delete(1.0, "end")
+            self.bot_airfoil_frame.kerf_text_box.delete(1.0, "end")
+
+            # Update the text fields with any available information from the wing
+            if wing.name is not None:
+                self.wing_setting_frame.name_text.insert(1.0, wing.name)
+                ret_val = wing.name
+            if wing.span is not None:
+                self.wing_setting_frame.span_text.insert(1.0, wing.span)
+            if wing.washout is not None:
+                self.wing_setting_frame.washout_text.insert(1.0, wing.washout)
+            if wing.sweep is not None:
+                self.wing_setting_frame.sweep_text.insert(1.0, wing.sweep)
+            if wing.root_airfoil_tag is not None:
+                self.top_airfoil_frame.airfoil_option_menu.set(wing.root_airfoil_tag)
+                self.bot_airfoil_frame.airfoil_option_menu.set(wing.tip_airfoil_tag)
+                self.top_airfoil_frame.plot_airfoil('manual')
+                self.bot_airfoil_frame.plot_airfoil('manual')
+            else:
+                self.top_airfoil_frame.plot_airfoil('manual')
+                self.bot_airfoil_frame.plot_airfoil('manual')
+            if wing.root_chord is not None:
+                self.top_airfoil_frame.chord_text_box.insert(1.0, wing.root_chord)
+                self.bot_airfoil_frame.chord_text_box.insert(1.0, wing.tip_chord)
+                self.top_airfoil_frame.kerf_text_box.insert(1.0, wing.root_kerf)
+                self.bot_airfoil_frame.kerf_text_box.insert(1.0, wing.tip_kerf)
+
+            align = 1 if wing.align_with_le else 0
+            gen_lr = 1 if wing.symmetric else 0
+
+            self.wing_setting_frame.align_led_var.set(align)
+            self.wing_setting_frame.gen_lr_var.set(gen_lr)
+            self.wing_setting_frame.check_gen_lr()
+            self.wing_setting_frame.check_align_led()
+
+            self.wing_setting_frame.cnc_machine_option_menu.configure(values=self.wing_setting_frame.get_machine_options())
+
+        return ret_val
+
+    def get_curr_name(self):
+        ret_val = None
+
+        if self.curr_selected is not None:
+            # Wing settings have not been saved by this point, so grab the name directly out of the text box field
+            ret_val = self.wing_setting_frame.name_text.get(1.0, 'end-1c')
+
+        return ret_val
+
+    def slice_selected(self):
+        self.save_wing_settings()
+        wing = self.wings[self.curr_selected]
+        machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
+        sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=wire_slicer.project.output_dir)
+
+    def slice_all(self):
+        orig_sel = self.curr_selected
+        for ind in range(len(self.wings)):
+            self.curr_selected = ind
+            wing = self.wings[self.curr_selected]
+            machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
+            sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=wire_slicer.project.output_dir)
+        self.curr_selected = orig_sel
 
 
 class CADWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(CADWindow, self).__init__(master, WindowState.CAD, root)
 
-        self.label = ttk.Label(master=self, text='CAD')
-        self.label.grid()
+        self.grid_rowconfigure(index=0, weight=100)
+        self.grid_columnconfigure(index=0, weight=1)
+        self.grid_columnconfigure(index=1, weight=8)
+        self.grid_propagate(False)
+
+        self.primary_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.primary_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.primary_frame.grid_columnconfigure(index=0, weight=1)
+        self.primary_frame.grid_rowconfigure(index=0, weight=2)
+        self.primary_frame.grid_rowconfigure(index=1, weight=1)
+        self.primary_frame.grid_propagate(False)
+        self.primary_frame.pack_propagate(False)
+
+        self.primary_frame.grid_rowconfigure(index=0, weight=1)
+        self.primary_frame.grid_columnconfigure(index=0, weight=1)
+
+        self.set_visibility(False)
+
+        self.scroll_frame = ScrollableSelectionMenu(self, self)
+        self.scroll_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self._create_top()
+        self._create_bot()
+
+    def set_visibility(self, visible):
+        if visible:
+            self.primary_frame.grid()
+        else:
+            self.primary_frame.grid_remove()
+
+    def _create_top(self):
+        self.top_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.top_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.top_frame.grid_rowconfigure(index=0, weight=1)
+        self.top_frame.grid_rowconfigure(index=1, weight=4)
+        self.top_frame.grid_rowconfigure(index=2, weight=1)
+        self.top_frame.grid_columnconfigure(index=0, weight=1)
+        self.top_frame.grid_propagate(False)
+
+        self.top_top_frame = tk.Frame(self.top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.top_top_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.top_top_frame.grid_rowconfigure(index=0, weight=1)
+        self.top_top_frame.grid_columnconfigure(index=0, weight=3)
+        self.top_top_frame.grid_columnconfigure(index=1, weight=2)
+        self.top_top_frame.grid_columnconfigure(index=2, weight=1)
+        self.top_top_frame.grid_propagate(False)
+
+        self.name_frame = tk.LabelFrame(self.top_top_frame, text='Name:', background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.name_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.name_frame.pack_propagate(False)
+
+        self.name_text = tk.Text(self.name_frame)
+        self.name_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 2, PrimaryStyle.GENERAL_PADDING / 4),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.stl_frame = tk.LabelFrame(self.top_top_frame, text='File:', background=PrimaryStyle.SECONDARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                       fg=PrimaryStyle.FONT_COLOR)
+        self.stl_frame.grid(row=0, column=1, sticky=tk.NSEW)
+        self.stl_frame.grid_rowconfigure(index=0, weight=1)
+        self.stl_frame.grid_columnconfigure(index=0, weight=1)
+        self.stl_frame.grid_propagate(False)
+
+        self.selected_stl = tk.StringVar()
+        self.selected_stl.set('Select File')
+
+        self.stl_menu = ttk.Combobox(self.stl_frame, textvariable=self.selected_stl,
+                                     values=self.get_file_options())
+        self.stl_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2,
+                                                                  PrimaryStyle.GENERAL_PADDING / 4),
+                           padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.units_frame = tk.LabelFrame(self.top_top_frame, text='File Units:',
+                                         background=PrimaryStyle.SECONDARY_COLOR,
+                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                         fg=PrimaryStyle.FONT_COLOR)
+        self.units_frame.grid(row=0, column=2, sticky=tk.NSEW)
+        self.units_frame.grid_rowconfigure(index=0, weight=1)
+        self.units_frame.grid_columnconfigure(index=0, weight=1)
+        self.units_frame.grid_propagate(False)
+
+        self.selected_units = tk.StringVar()
+        self.selected_units.set('Select Units')
+
+        self.unit_menu = ttk.Combobox(self.units_frame, textvariable=self.selected_units,
+                                      values=['mm', 'cm', 'm', 'in'])
+        self.unit_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2,
+                                                                   PrimaryStyle.GENERAL_PADDING / 4),
+                            padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+        self.mid_frame = tk.Frame(self.top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.mid_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        self.mid_frame.grid_columnconfigure(index=0, weight=1)
+        self.mid_frame.grid_columnconfigure(index=1, weight=5)
+        self.mid_frame.grid_rowconfigure(index=0, weight=1)
+        self.mid_frame.grid_propagate(False)
+
+        self.workpiece_frame = CADWindow.WorkpieceWindow(self.mid_frame, root=self,
+                                                         background=PrimaryStyle.SECONDARY_COLOR,
+                                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.workpiece_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.setting_frame = CADWindow.SettingsWindow(self.mid_frame, root=self,
+                                                      background=PrimaryStyle.SECONDARY_COLOR,
+                                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.setting_frame.grid(row=0, column=1, sticky=tk.NSEW)
+
+    def _create_bot(self):
+        self.bot_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.bot_frame.grid(row=1, column=0, sticky=tk.NSEW)
+
+    def get_file_options(self):
+        files = list()
+        for i in range(1, 4):
+            files.append('STL%s' % i)
+        for i in range(4, 8):
+            files.append('OBJ%s' % i)
+        return files
+
+    class WorkpieceWindow(tk.Frame):
+        def __init__(self, master, root, **kwargs):
+            super(CADWindow.WorkpieceWindow, self).__init__(master, **kwargs)
+            self.root = root
+
+            self.grid_rowconfigure(index=0, weight=1)
+            self.grid_columnconfigure(index=0, weight=1)
+
+            self.workpiece_frame = tk.LabelFrame(self, text='Workpiece:', background=PrimaryStyle.SECONDARY_COLOR,
+                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                 fg=PrimaryStyle.FONT_COLOR)
+            self.workpiece_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                      pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+    class SettingsWindow(tk.Frame):
+        def __init__(self, master, root, **kwargs):
+            super(CADWindow.SettingsWindow, self).__init__(master, **kwargs)
+            self.root = root
+
+            self.grid_rowconfigure(index=0, weight=1)
+            self.grid_columnconfigure(index=0, weight=1)
+
+            self.settings_frame = tk.LabelFrame(self, text='Settings:', background=PrimaryStyle.SECONDARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                fg=PrimaryStyle.FONT_COLOR)
+            self.settings_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                     pady=PrimaryStyle.GENERAL_PADDING / 2)
 
 
 class DatabaseWindow(EmbeddedWindow):

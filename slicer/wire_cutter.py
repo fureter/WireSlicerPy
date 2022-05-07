@@ -1,9 +1,9 @@
-class WireCutter():
+class WireCutter(object):
     """
 
     """
 
-    def __init__(self, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
+    def __init__(self, name, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
                  start_depth=None, feed_rate_mode=94,
                  axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}'):
         """
@@ -15,6 +15,7 @@ class WireCutter():
         :param release_height:
         :param start_height:
         """
+        self.name = name
         self.wire_length = wire_length
         self.max_height = max_height
         self.max_speed = max_speed

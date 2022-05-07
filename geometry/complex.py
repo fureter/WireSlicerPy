@@ -1003,6 +1003,11 @@ class WingSegment(object):
 
         self.name = name
 
+        # Tags used in tandem with gui for menu boxes
+        self.root_airfoil_tag = None
+        self.tip_airfoil_tag = None
+        self.machine_tag = None
+
         self.root_airfoil = None
         self.tip_airfoil = None
 
@@ -1010,9 +1015,13 @@ class WingSegment(object):
         self.root_chord = None
         self.tip_chord = None
 
+        self.root_kerf = None
+        self.tip_kerf = None
+
         self.sweep = None
         self.washout = None
 
+        self.align_with_le = False
         self._rotated = False
 
         self.symmetric = False
