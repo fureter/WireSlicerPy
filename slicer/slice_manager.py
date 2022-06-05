@@ -3,6 +3,7 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
+import trimesh.transformations
 
 import g_code.generator as gg
 import geometry.complex as comp
@@ -30,6 +31,8 @@ class SliceManager(object):
         output_dir = os.path.join(output_dir, name)
         cut_stl = comp.STL(file_path=stl_path, units=units)
         cut_stl.mesh.convert_units('mm')
+        # rot_mat = trimesh.transformations.rotation_matrix(np.pi, [0, 1, 0], [0, 0, 0])
+        # cut_stl.mesh.apply_transform(rot_mat)
         bounding_box = cut_stl.mesh.bounds
         logger.info('Bounds: %s' % bounding_box)
 
@@ -83,9 +86,11 @@ class SliceManager(object):
             prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C1', scatter=False)
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C2', scatter=False)
             if section.section1.get_path_hole() is not None:
-                prim.GeometricFunctions.plot_path(section.section1.get_path_hole(), color='C3', scatter=False)
+                for hole in section.section1.get_path_hole():
+                    prim.GeometricFunctions.plot_path(hole, color='C3', scatter=False)
             if section.section2.get_path_hole() is not None:
-                prim.GeometricFunctions.plot_path(section.section2.get_path_hole(), color='C4', scatter=False)
+                for hole in section.section2.get_path_hole():
+                    prim.GeometricFunctions.plot_path(hole, color='C4', scatter=False)
             prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True)
             prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True)
             plt.legend(['Section 1 outer', 'Section 2 outer', 'Section 1 inner', 'Section 2 inner'])
@@ -134,7 +139,7 @@ class SliceManager(object):
             tool_path.zero_forwards_path_for_cutting()
             gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
             gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_gcode_p%s.txt' % (name, ind + 1)),
-                                        tool_path=tool_path)
+                                        tool_path=tool_path, wire_cutter=wire_cutter)
 
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=400)
@@ -146,16 +151,20 @@ class SliceManager(object):
     @staticmethod
     def wing_to_gcode(wing, wire_cutter, output_dir):
         SliceManager.create_folders(output_dir, wing.name)
+        plot_dir = os.path.join(output_dir, wing.name, 'plots')
 
         gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
 
-        wing.prep_for_slicing()
+        wing.prep_for_slicing(plot=True, output_dir=plot_dir)
         wing.center_to_wire_cutter(wire_cutter=wire_cutter)
-        cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True)
-        tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
+        cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True,
+                                                          output_dir=plot_dir)
+        tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter,
+                                                               output_dir=plot_dir)
         tool_path.zero_forwards_path_for_cutting()
         name = '%s_left.txt' if wing.symmetric else '%s.txt'
-        gcode.create_relative_gcode(file_path=os.path.join(output_dir, name % wing.name), tool_path=tool_path)
+        gcode.create_relative_gcode(file_path=os.path.join(output_dir, name % wing.name), tool_path=tool_path,
+                                    wire_cutter=wire_cutter)
 
         if wing.symmetric:
             wing.flip_tip_and_root()
@@ -163,7 +172,8 @@ class SliceManager(object):
             tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
             tool_path.zero_forwards_path_for_cutting()
             gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_right.txt' % wing.name),
-                                        tool_path=tool_path)
+                                        tool_path=tool_path,
+                                        wire_cutter=wire_cutter)
 
     @staticmethod
     def create_folders(output_dir, name):

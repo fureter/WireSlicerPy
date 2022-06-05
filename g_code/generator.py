@@ -1,10 +1,12 @@
 import logging
 import timeit
 
+import numpy as np
+
 import g_code.command_library as command_library
 from geometry.primative import GeometricFunctions
-from slicer.wire_cutter import WireCutter
 from slicer.tool_path import ToolPath
+from slicer.wire_cutter import WireCutter
 
 
 class TravelType():
@@ -56,13 +58,12 @@ class GCodeGenerator():
         else:
             raise NotImplementedError('Selected travel type of %s is not implemented' % travel_type)
 
-    def create_relative_gcode(self, file_path, tool_path):
+    def create_relative_gcode(self, file_path, tool_path, wire_cutter):
         """
 
         :param file_path:
         :param ToolPath tool_path:
-        :param list[Point] key_points:
-        :param int cut_mode: Defines how the toolpath should be sliced.
+        :param WireCutter wire_cutter:
         :return:
         """
         self.logger.info('Creating relative gcode with travel type: %s at location: %s' %
@@ -95,9 +96,20 @@ class GCodeGenerator():
                     curr_speed = speed_list[ind]
                     cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
                     self.logger.debug(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
+
+            movement = movement_list[ind]
+            if wire_cutter.dynamic_tension:
+                # Calculate the relative change in the wire length between the two gantries
+                delta_wire = np.sqrt(
+                    (movement[0] - movement[2]) ** 2 + (movement[1] - movement[3]) ** 2)
+                # Calculate the needed motor movement to adjust for the changed wire length
+                delta_wire_dist = delta_wire * wire_cutter.dynamic_tension_spool_radius
+
             cmd_list.append(enum.g1_linear_move(
-                self._wire_cutter.axis_def.format(movement_list[ind][0], movement_list[ind][1], movement_list[ind][2],
-                                                  movement_list[ind][3])))
+                self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2],
+                                                  movement[3]) + ' {motor}{dist:.6f}'.format(
+                    motor=wire_cutter.dynamic_tension_motor_letter,
+                    dist=delta_wire_dist) if wire_cutter.dynamic_tension else ''))
 
         self._save_gcode_file(file_path, cmd_list)
 

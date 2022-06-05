@@ -373,19 +373,32 @@ class PointManip():
     def _standard_airfoil_format_sort(points):
         sorted_points = list()
         sorted_points.append(points[0])
+        te_start = False
+        if np.abs(sorted_points[-1]['x'] - 1) < 0.01:
+            te_start = True
 
         rev_ind = 0
         for ind in range(1, len(points)):
             point2 = points[ind]
             if (sorted_points[-1] - point2)**2 > 0.9:
                 rev_ind = ind
+                reved = True
                 break
             else:
                 sorted_points.append(points[ind])
         if len(sorted_points) != len(points):
             sorted_points.extend(list(reversed(points[rev_ind:])))
 
-        return sorted_points
+        # If the airfoil data started at the trailing edge, phase shift the data to start at the leading edge
+        if te_start:
+            ind_min = prim.GeometricFunctions.get_index_min_coord(sorted_points, 'x')
+            tmp_sorted_points = sorted_points[ind_min:]
+            tmp_sorted_points.extend(sorted_points[0:ind_min+1])
+            sorted_points = copy.deepcopy(tmp_sorted_points)
+            if sorted_points[1]['y'] < 0:
+                sorted_points = list(reversed(sorted_points))
+
+        return prim.GeometricFunctions.remove_duplicate_memory_from_path(sorted_points)
 
     @staticmethod
     def find_indexes_with_high_volitility(sorted_points, ang_thresh=30):

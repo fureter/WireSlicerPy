@@ -13,7 +13,12 @@ def encode(obj, output_dir, file_name):
     :param file_name: Name of the file to create, the file extension will be appended.
     """
     enc = jsonpickle.encode(obj)
-    with open(os.path.join(output_dir, '%s.json' % file_name), 'wt') as fid:
+    if '.' not in file_name:
+        str_format = '%s.json'
+    else:
+        str_format = '%s'
+
+    with open(os.path.join(output_dir, str_format % file_name), 'wt') as fid:
         json.dump(enc, fid)
 
 

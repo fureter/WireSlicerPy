@@ -2,16 +2,20 @@ import copy
 import logging
 import os
 import tkinter as tk
+import tkinter.filedialog as filedialog
 import tkinter.ttk as ttk
 
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 import geometry.complex as cm
 import geometry.parser as gp
-import slicer.wire_cutter as wc
+import geometry.spatial_manipulation as spm
+import project_manager as pm
 import slicer.slice_manager as sm
-import wire_slicer
+import slicer.wire_cutter as wc
+from util.util_functions import is_float
 from .styles import PrimaryStyle
 
 
@@ -163,11 +167,39 @@ class ScrollableSelectionMenu(tk.Frame):
             self.items[self.curr_select].button.configure(text=name)
             self.items[self.curr_select].button.update()
 
+    def update_curr_name(self, name):
+        self.items[self.curr_select].button.configure(text=name)
+        self.items[self.curr_select].button.update()
+
+    def update_from_list(self, names):
+        for index, name in enumerate(names):
+            self.items.append(ToggleButton(self.scroll_window, top_level_scroll=self, index=index,
+                                           width=72, height=72, text=name,
+                                           bg=PrimaryStyle.SECONDARY_COLOR,
+                                           fg=PrimaryStyle.FONT_COLOR))
+            self.items[-1].pack(side=tk.TOP, fill=None, anchor=tk.CENTER)
+
+        self.curr_select = len(self.items) - 1
+        self.items[self.curr_select].button.config(background=PrimaryStyle.SELECT_COLOR)
+        self.items[self.curr_select].button.update()
+        self.root.set_visibility(visible=True)
+        self.root.update_gui(index=self.curr_select)
+
+    def reset(self):
+        for item in reversed(self.items):
+            tmp = item
+            self.items.remove(tmp)
+            tmp.destroy()
+            del tmp
+        self.items = list()
+        self.curr_select = None
+
     def _handle_prev_selected(self):
         if self.curr_select is not None:
             self.items[self.curr_select].button.configure(bg=PrimaryStyle.SECONDARY_COLOR)
             self.items[self.curr_select].button.update()
             name = self.root.get_curr_name()
+            self.root.save_wing_settings()
             if name is not None:
                 self.items[self.curr_select].button.configure(text=name)
                 self.items[self.curr_select].button.update()
@@ -194,12 +226,14 @@ class ScrollableSelectionMenu(tk.Frame):
 
 
 class MainWindow(tk.Tk):
-
     def __init__(self, title, width, height):
         super(MainWindow, self).__init__(baseName=title)
         self.width = width
         self.height = height
+        self.window_title = title
         self.title(title)
+
+        self.curr_project = pm.Project.default_project()
 
         self.geometry("%sx%s" % (self.width, self.height))
 
@@ -229,10 +263,6 @@ class MainWindow(tk.Tk):
 
         self.resizable(False, False)
 
-        self.wings = list()
-        self.machines = list()
-        self.cad_imports = list()
-
     def get_window_instance(self, window):
         return self.embedded_windows[window]
 
@@ -241,11 +271,49 @@ class MainWindow(tk.Tk):
         print('Changing Window')
         self.update()
 
+    def new_project(self):
+        self.update()
+        output_file = filedialog.asksaveasfilename(title="Create Project", master=self, defaultextension='.proj',
+                                                   filetypes=[('Project', '*.proj')])
+        self.curr_project = pm.Project(os.path.dirname(output_file), os.path.splitext(os.path.basename(output_file))[0])
+        self.title(self.window_title + ' Project: %s' % self.curr_project.name)
+        self.embedded_windows[WindowState.WING].reset()
+        self.embedded_windows[WindowState.WING].scroll_frame.reset()
+        self.save_project()
+
+    def save_project(self):
+        self.embedded_windows[WindowState.WING].save_wing_settings()
+        if self.curr_project.name in 'Default':
+            output_file = filedialog.asksaveasfilename(title="Create Project", master=self, defaultextension='.proj',
+                                                       filetypes=[('Project', '*.proj')])
+            self.curr_project = pm.Project(os.path.dirname(output_file),
+                                           os.path.splitext(os.path.basename(output_file))[0])
+            self.title(self.window_title + ' Project: %s' % self.curr_project.name)
+        self.curr_project.wings = self.embedded_windows[WindowState.WING].wings
+        self.curr_project.machines = self.embedded_windows[WindowState.MACHINE_SETUP].machines
+        self.curr_project.cad_parts = self.embedded_windows[WindowState.CAD].cad_parts
+        self.curr_project.save_project()
+
+    def load_project(self):
+        self.update()
+        file_path = filedialog.askopenfilename(title="Open Project", master=self,
+                                               filetypes=[('Project', '*.proj')])
+        self.curr_project = pm.Project.load_project(file_path)
+        self.title(self.window_title + ' Project: %s' % self.curr_project.name)
+        self.embedded_windows[WindowState.WING].update_from_project()
+        self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
+        self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
+        self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
+
+    def exit(self):
+        self.destroy()
+
     def _create_menu_bar(self):
         file_menu = tk.Menu(self.menu_bar, tearoff=0)
-        file_menu.add_command(label="Save Project")
-        file_menu.add_command(label="Load Project")
-        file_menu.add_command(label="Exit")
+        file_menu.add_command(label="New Project", command=self.new_project)
+        file_menu.add_command(label="Save Project", command=self.save_project)
+        file_menu.add_command(label="Load Project", command=self.load_project)
+        file_menu.add_command(label="Exit", command=self.exit)
         self.menu_bar.add_cascade(label="File", menu=file_menu)
 
         project_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -272,6 +340,24 @@ class EmbeddedWindow(tk.Frame):
         super(EmbeddedWindow, self).__init__(master, background=PrimaryStyle.PRIMARY_COLOR)
         self.window_type = window_type
         self.root = root
+
+    def update_from_project(self):
+        raise NotImplemented('update_from_project not Implemented for WindowType: %s' % self.window_type)
+
+    def add_item(self):
+        raise NotImplemented('add_item not Implemented for WindowType: %s' % self.window_type)
+
+    def delete_item(self, index):
+        raise NotImplemented('delete_item not Implemented for WindowType: %s' % self.window_type)
+
+    def update_gui(self, index):
+        raise NotImplemented('update_gui not Implemented for WindowType: %s' % self.window_type)
+
+    def get_curr_name(self):
+        raise NotImplemented('get_curr_name not Implemented for WindowType: %s' % self.window_type)
+
+    def reset(self):
+        raise NotImplemented('reset not Implemented for WindowType: %s' % self.window_type)
 
 
 class HomeWindow(EmbeddedWindow):
@@ -387,11 +473,22 @@ class MachineWindow(EmbeddedWindow):
 
         self.machines = list()
         self.machines.append(wc.WireCutter(name='short', wire_length=245, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
-        self.machines.append(wc.WireCutter(name='baseline', wire_length=500, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
+                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           dynamic_tension=True))
+        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
+        self.machines[-1].set_dynamic_tension_motor_letter('V')
+
+        self.machines.append(wc.WireCutter(name='baseline', wire_length=640, max_height=300.0, max_speed=150.0,
+                                           min_speed=50, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           dynamic_tension=True))
+        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
+        self.machines[-1].set_dynamic_tension_motor_letter('V')
+
         self.machines.append(wc.WireCutter(name='extended', wire_length=1000, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0))
+                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           dynamic_tension=True))
+        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
+        self.machines[-1].set_dynamic_tension_motor_letter('V')
 
         self.grid_rowconfigure(index=0, weight=100)
         self.grid_columnconfigure(index=0, weight=1)
@@ -695,14 +792,14 @@ class MachineWindow(EmbeddedWindow):
 
         self.gantry_photo = tk.PhotoImage(file=os.path.join(r'assets\gui\gantries.png'), width=900, height=900)
         self.gantry_photo = self.gantry_photo.subsample(2)
-        # self.photo_label = tk.Label(self.right_frame, image=self.gantry_photo)
-        # self.photo_label.grid(row=0, column=0, sticky=tk.NSEW)
+        self.photo_label = tk.Label(self.right_frame, image=self.gantry_photo)
+        self.photo_label.grid(row=0, column=0, sticky=tk.NSEW)
 
 
 class WingWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(WingWindow, self).__init__(master, WindowState.WING, root)
-
+        self.main_window = root
         self.wings = list()
         self.curr_selected = None
 
@@ -755,14 +852,16 @@ class WingWindow(EmbeddedWindow):
         self.left_top_frame.grid_rowconfigure(index=1, weight=1)
         self.left_top_frame.grid_columnconfigure(index=0, weight=1)
 
-        self.top_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, background=PrimaryStyle.SECONDARY_COLOR,
+        self.top_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, position=0,
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                    text='Section XY:', fg=PrimaryStyle.FONT_COLOR)
         self.top_airfoil_frame.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2, 0),
                                     padx=(PrimaryStyle.GENERAL_PADDING / 2, 0))
 
-        self.bot_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, background=PrimaryStyle.SECONDARY_COLOR,
+        self.bot_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, position=1,
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                    text='Section UZ:', fg=PrimaryStyle.FONT_COLOR)
@@ -814,10 +913,48 @@ class WingWindow(EmbeddedWindow):
         self.slice_all_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
                                 pady=PrimaryStyle.GENERAL_PADDING / 2)
 
+    def _get_xlim_for_plotting(self):
+        xmin = 0
+        xmax = 1
+        chord1 = self.top_airfoil_frame.chord_text_box.get(1.0, "end-1c")
+        chord2 = self.bot_airfoil_frame.chord_text_box.get(1.0, "end-1c")
+
+        chord1 = float(chord1) if is_float(chord1) else None
+        chord2 = float(chord2) if is_float(chord2) else None
+
+        span = self.wing_setting_frame.span_text.get(1.0, 'end-1c')
+        span = float(span) if is_float(span) else None
+
+        sweep = self.wing_setting_frame.sweep_text.get(1.0, 'end-1c')
+        sweep = float(sweep) if is_float(sweep) else None
+
+        if chord1 is not None and chord2 is not None:
+            xmax = max(chord1, chord2)
+        elif chord1 is not None:
+            xmax = chord1
+        elif chord2 is not None:
+            xmax = chord2
+
+        if span is not None and sweep is not None:
+            offset = np.sin(np.deg2rad(sweep)) * span
+            if offset < 0:
+                xmin = offset
+            elif chord1 is not None and chord2 is not None:
+                xmax = max(chord1, chord2 + offset)
+            else:
+                xmin = 0
+
+        return [xmin, xmax]
+
+    def update_airfoil_plots(self, event):
+        self.top_airfoil_frame.plot_airfoil(event)
+        self.bot_airfoil_frame.plot_airfoil(event)
+
     class AirfoilFrame(tk.LabelFrame):
-        def __init__(self, master, root, **kwargs):
+        def __init__(self, master, root, position, **kwargs):
             super(WingWindow.AirfoilFrame, self).__init__(master, **kwargs)
             self.root = root
+            self.position = position
 
             self.grid_rowconfigure(index=0, weight=5)
             self.grid_rowconfigure(index=1, weight=1)
@@ -862,6 +999,8 @@ class WingWindow(EmbeddedWindow):
 
             self.chord_text_box = tk.Text(self.chord_label_frame, height=1, width=8)
             self.chord_text_box.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 20), pady=1)
+            self.chord_text_box.bind("<FocusOut>", self.root.update_airfoil_plots)
+            self.chord_text_box.bind("<KeyRelease>", self.root.update_airfoil_plots)
 
             self.kerf_label_frame = tk.LabelFrame(self.bot_frame, text='Kerf', fg=PrimaryStyle.FONT_COLOR,
                                                   background=PrimaryStyle.SECONDARY_COLOR,
@@ -892,11 +1031,10 @@ class WingWindow(EmbeddedWindow):
             self.airfoil_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 20), pady=1)
 
             self.airfoil_option_menu.bind('<<ComboboxSelected>>', self.plot_airfoil)
-            # self.plot_airfoil()
 
         def get_airfoil_options(self):
             airfoils = list()
-            airfoils.extend(wire_slicer.project.airfoil_database.airfoils.keys())
+            airfoils.extend(self.root.main_window.curr_project.database.airfoils.keys())
             return airfoils
 
         def plot_airfoil(self, event):
@@ -928,10 +1066,40 @@ class WingWindow(EmbeddedWindow):
                     line.set_color(PrimaryStyle.FONT_COLOR)
                     line.set_markeredgewidth(8)
 
-                airfoil = gp.Dat(data=wire_slicer.project.airfoil_database.airfoils[airfoil_selection])
+                airfoil = gp.Dat(
+                    data=self._transform_airfoil(self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
                 airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR)
 
+                xlim = self.root._get_xlim_for_plotting()
+                plot_1.set_xlim(xlim[0], xlim[1])
+
             self.draw_canvas.draw()
+
+        def _transform_airfoil(self, data):
+            chord = self.chord_text_box.get(1.0, 'end-1c')
+            chord = float(chord) if is_float(chord) else None
+
+            washout = self.root.wing_setting_frame.washout_text.get(1.0, 'end-1c')
+            washout = float(washout) if is_float(washout) else None
+
+            sweep = self.root.wing_setting_frame.sweep_text.get(1.0, 'end-1c')
+            sweep = float(sweep) if is_float(sweep) else None
+
+            span = self.root.wing_setting_frame.span_text.get(1.0, 'end-1c')
+            span = float(span) if is_float(span) else None
+
+            points = copy.deepcopy(data)
+            if chord is not None:
+                spm.PointManip.Transform.scale(points, [chord, chord, 0])
+
+            if washout is not None and self.position == 1:
+                spm.PointManip.Transform.rotate(points, [0.0, 0.0, np.deg2rad(washout)])
+
+            if sweep is not None and span is not None and self.position == 1:
+                offset = np.sin(np.deg2rad(sweep)) * span
+                spm.PointManip.Transform.translate(points, [offset, 0.0, 0.0])
+
+            return points
 
     class WingSettingFrame(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -967,6 +1135,9 @@ class WingWindow(EmbeddedWindow):
             self.name_text = tk.Text(self.name_label_frame)
             self.name_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4),
                                 padx=PrimaryStyle.GENERAL_PADDING / 2)
+            self.name_text.bind("<KeyRelease>", self.update_name)
+            self.name_text.bind("<FocusOut>", self.update_name)
+            self.name_text.bind("<FocusIn>", self.update_name)
 
             self.span_label_frame = tk.LabelFrame(self.wing_field_frame, text='Span (mm):',
                                                   background=PrimaryStyle.SECONDARY_COLOR,
@@ -980,6 +1151,9 @@ class WingWindow(EmbeddedWindow):
             self.span_text = tk.Text(self.span_label_frame)
             self.span_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
                                 padx=PrimaryStyle.GENERAL_PADDING / 2)
+            self.span_text.bind("<KeyRelease>", self.root.update_airfoil_plots)
+            self.span_text.bind("<FocusOut>", self.root.update_airfoil_plots)
+            self.span_text.bind("<FocusIn>", self.root.update_airfoil_plots)
 
             self.washout_label_frame = tk.LabelFrame(self.wing_field_frame, text='Washout (deg):',
                                                      background=PrimaryStyle.SECONDARY_COLOR,
@@ -994,6 +1168,9 @@ class WingWindow(EmbeddedWindow):
             self.washout_text = tk.Text(self.washout_label_frame)
             self.washout_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
                                    padx=PrimaryStyle.GENERAL_PADDING / 2)
+            self.washout_text.bind("<KeyRelease>", self.root.update_airfoil_plots)
+            self.washout_text.bind("<FocusOut>", self.root.update_airfoil_plots)
+            self.washout_text.bind("<FocusIn>", self.root.update_airfoil_plots)
 
             self.sweep_label_frame = tk.LabelFrame(self.wing_field_frame, text='Sweep (deg):',
                                                    background=PrimaryStyle.SECONDARY_COLOR,
@@ -1008,6 +1185,9 @@ class WingWindow(EmbeddedWindow):
             self.sweep_text = tk.Text(self.sweep_label_frame)
             self.sweep_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
                                  padx=PrimaryStyle.GENERAL_PADDING / 2)
+            self.sweep_text.bind("<KeyRelease>", self.root.update_airfoil_plots)
+            self.sweep_text.bind("<FocusOut>", self.root.update_airfoil_plots)
+            self.sweep_text.bind("<FocusIn>", self.root.update_airfoil_plots)
 
             self.options_frame = tk.LabelFrame(self.wing_field_frame,
                                                background=PrimaryStyle.SECONDARY_COLOR,
@@ -1080,6 +1260,12 @@ class WingWindow(EmbeddedWindow):
                 machines.append(machine.name)
             return machines
 
+        def update_name(self, event):
+            self.root.scroll_frame.update_curr_name(name=self.name_text.get("1.0", "end-1c"))
+
+        def _update_tip_airfoil(self, event):
+            self.root.bot_airfoil_frame.plot_airfoil(event=0)
+
     class SparWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
             super(WingWindow.SparWindow, self).__init__(master, **kwargs)
@@ -1127,15 +1313,18 @@ class WingWindow(EmbeddedWindow):
             wing.tip_airfoil_tag = self.bot_airfoil_frame.airfoil_option_menu.get()
             wing.root_airfoil_tag = self.top_airfoil_frame.airfoil_option_menu.get()
             if wing.tip_airfoil_tag != 'Select Airfoil':
-                wing.tip_airfoil = copy.deepcopy(wire_slicer.project.airfoil_database.airfoils[wing.tip_airfoil_tag])
+                wing.tip_airfoil = copy.deepcopy(
+                    self.root.curr_project.database.airfoils[wing.tip_airfoil_tag])
             if wing.root_airfoil_tag != 'Select Airfoil':
-                wing.root_airfoil = copy.deepcopy(wire_slicer.project.airfoil_database.airfoils[wing.root_airfoil_tag])
+                wing.root_airfoil = copy.deepcopy(
+                    self.root.curr_project.database.airfoils[wing.root_airfoil_tag])
 
             wing.symmetric = True if self.wing_setting_frame.gen_lr_var.get() == 1 else False
             wing.align_with_le = True if self.wing_setting_frame.align_led_var.get() == 1 else False
 
     def add_item(self):
         self.wings.append(cm.WingSegment(name='', logger=self.logger))
+        # self.curr_selected = len(self.wings)-1
 
     def delete_item(self, index):
         tmp = self.wings[index]
@@ -1173,14 +1362,6 @@ class WingWindow(EmbeddedWindow):
                 self.wing_setting_frame.washout_text.insert(1.0, wing.washout)
             if wing.sweep is not None:
                 self.wing_setting_frame.sweep_text.insert(1.0, wing.sweep)
-            if wing.root_airfoil_tag is not None:
-                self.top_airfoil_frame.airfoil_option_menu.set(wing.root_airfoil_tag)
-                self.bot_airfoil_frame.airfoil_option_menu.set(wing.tip_airfoil_tag)
-                self.top_airfoil_frame.plot_airfoil('manual')
-                self.bot_airfoil_frame.plot_airfoil('manual')
-            else:
-                self.top_airfoil_frame.plot_airfoil('manual')
-                self.bot_airfoil_frame.plot_airfoil('manual')
             if wing.root_chord is not None:
                 self.top_airfoil_frame.chord_text_box.insert(1.0, wing.root_chord)
                 self.bot_airfoil_frame.chord_text_box.insert(1.0, wing.tip_chord)
@@ -1195,7 +1376,17 @@ class WingWindow(EmbeddedWindow):
             self.wing_setting_frame.check_gen_lr()
             self.wing_setting_frame.check_align_led()
 
-            self.wing_setting_frame.cnc_machine_option_menu.configure(values=self.wing_setting_frame.get_machine_options())
+            self.wing_setting_frame.cnc_machine_option_menu.configure(
+                values=self.wing_setting_frame.get_machine_options())
+
+            if wing.root_airfoil_tag is not None:
+                self.top_airfoil_frame.airfoil_option_menu.set(wing.root_airfoil_tag)
+                self.bot_airfoil_frame.airfoil_option_menu.set(wing.tip_airfoil_tag)
+                self.top_airfoil_frame.plot_airfoil('manual')
+                self.bot_airfoil_frame.plot_airfoil('manual')
+            else:
+                self.top_airfoil_frame.plot_airfoil('manual')
+                self.bot_airfoil_frame.plot_airfoil('manual')
 
         return ret_val
 
@@ -1208,11 +1399,32 @@ class WingWindow(EmbeddedWindow):
 
         return ret_val
 
+    def update_from_project(self):
+        self.scroll_frame.reset()
+        self.reset()
+
+        self.wings = self.root.curr_project.wings
+
+        names = list()
+        for item in self.wings:
+            names.append(item.name)
+        self.scroll_frame.update_from_list(names)
+
+    def reset(self):
+        for wing in reversed(self.wings):
+            tmp = wing
+            self.wings.remove(wing)
+            del wing
+        del self.wings
+        self.wings = list()
+        self.curr_selected = None
+        self.update_gui(self.curr_selected)
+
     def slice_selected(self):
         self.save_wing_settings()
         wing = self.wings[self.curr_selected]
         machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
-        sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=wire_slicer.project.output_dir)
+        sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
 
     def slice_all(self):
         orig_sel = self.curr_selected
@@ -1220,7 +1432,7 @@ class WingWindow(EmbeddedWindow):
             self.curr_selected = ind
             wing = self.wings[self.curr_selected]
             machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
-            sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=wire_slicer.project.output_dir)
+            sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
         self.curr_selected = orig_sel
 
 
@@ -1253,6 +1465,8 @@ class CADWindow(EmbeddedWindow):
 
         self._create_top()
         self._create_bot()
+
+        self.cad_parts = list()
 
     def set_visibility(self, visible):
         if visible:

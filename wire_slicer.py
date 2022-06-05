@@ -32,13 +32,15 @@
 """
 
 import logging
-import tkinter as tk
 import sys
+sys.coinit_flags = 0x0
+import tkinter as tk
 
-import project_manager as pm
 import gui.window
 
 
+DEFAULT_AIRFOIL_PATH = r'assets/Airfoils/'
+DEFAULT_CAD_PATH = r'assets/STLs/'
 
 def setup(logger_level=logging.INFO):
     logger = logging.getLogger()
@@ -99,18 +101,13 @@ def setup_gui(main_window):
          ('MicroNebula', 3)]
     )
 
-# create databases
-project = pm.Project(airfoil_database=pm.AirfoilDatabase(),
-                     output_dir=r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests\gui_test')
 
 if __name__ == '__main__':
     # setup logger and logger handlers
     setup()
     # Create the main window
     main_window = gui.window.MainWindow('WireSlicerPy', 800, 600)
-
     # Fake Initilize the recent projects
     setup_gui(main_window)
-
     # Start the tk main loop
     tk.mainloop()

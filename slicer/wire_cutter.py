@@ -4,8 +4,8 @@ class WireCutter(object):
     """
 
     def __init__(self, name, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
-                 start_depth=None, feed_rate_mode=94,
-                 axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}'):
+                 start_depth=None, feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
+                 dynamic_tension=False):
         """
 
         :param wire_length:
@@ -27,6 +27,9 @@ class WireCutter(object):
         self.start_up_gcode = None
         self.axis_def = axis_def
         self.kerf = None
+        self.dynamic_tension = dynamic_tension
+        self.dynamic_tension_motor_letter = None
+        self.dynamic_tension_spool_radius = None
 
     def set_gcode_statup(self, g_code):
         """Sets the initializing test_g_code for the machine.
@@ -44,3 +47,9 @@ class WireCutter(object):
         """
         self.kerf = kerf
         self.max_kerf = max_kerf
+
+    def set_dynamic_tension_motor_letter(self, motor_letter):
+        self.dynamic_tension_motor_letter = motor_letter
+
+    def set_dynamic_tension_spool_radius(self, spool_radius):
+        self.dynamic_tension_spool_radius = spool_radius

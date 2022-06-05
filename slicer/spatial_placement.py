@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 import matplotlib.patheffects as pe
 import matplotlib.pyplot as plt
@@ -46,9 +47,11 @@ class SpatialPlacement:
             spma.PointManip.Transform.translate(path_1, -center)
             spma.PointManip.Transform.translate(path_2, -center)
             if section.section1.get_path_hole() is not None:
-                spma.PointManip.Transform.translate(section.section1.get_path_hole(), -center)
+                for hole in section.section1.get_path_hole():
+                    spma.PointManip.Transform.translate(hole, -center)
             if section.section2.get_path_hole() is not None:
-                spma.PointManip.Transform.translate(section.section2.get_path_hole(), -center)
+                for hole in section.section2.get_path_hole():
+                    spma.PointManip.Transform.translate(hole, -center)
 
             collider1, collider2 = SpatialPlacement.create_section_collider(section, distance_between_sections)
             bb = prim.GeometricFunctions.get_bounding_box_from_path(collider1.get_path() + collider2.get_path())
@@ -198,14 +201,16 @@ class SpatialPlacement:
             spma.PointManip.Transform.translate(sec_2_path, translate2)
 
             if entry['section'].section1.get_path_hole() is not None:
-                sec_1_path_hole = entry['section'].section1.get_path_hole()
-                spma.PointManip.Transform.rotate(sec_1_path_hole, [0, 0, np.deg2rad(entry['rot'])])
-                spma.PointManip.Transform.translate(sec_1_path_hole, translate1)
+                for hole in entry['section'].section1.get_path_hole():
+                    sec_1_path_hole = hole
+                    spma.PointManip.Transform.rotate(sec_1_path_hole, [0, 0, np.deg2rad(entry['rot'])])
+                    spma.PointManip.Transform.translate(sec_1_path_hole, translate1)
 
             if entry['section'].section2.get_path_hole() is not None:
-                sec_2_path_hole = entry['section'].section2.get_path_hole()
-                spma.PointManip.Transform.rotate(sec_2_path_hole, [0, 0, np.deg2rad(entry['rot'])])
-                spma.PointManip.Transform.translate(sec_2_path_hole, translate2)
+                for hole in entry['section'].section2.get_path_hole():
+                    sec_2_path_hole = hole
+                    spma.PointManip.Transform.rotate(sec_2_path_hole, [0, 0, np.deg2rad(entry['rot'])])
+                    spma.PointManip.Transform.translate(sec_2_path_hole, translate2)
 
             entry['bb'] = prim.GeometricFunctions.get_bounding_box_from_path(entry['collider1'].get_path() +
                                                                              entry['collider2'].get_path())
@@ -662,14 +667,33 @@ class SpatialPlacement:
         if section_1.get_path_hole() is not None or section_2.get_path_hole() is not None:
             ind_list_holes = section_1.get_closest_point_to_hole() if section_1.get_path_hole() is not None else \
                 section_2.get_closest_point_to_hole()
-            hole1 = section_1.get_path_hole()
-            hole2 = section_2.get_path_hole()
+            holes1 = section_1.get_path_hole()
+            holes2 = section_2.get_path_hole()
             center1 = prim.GeometricFunctions.get_center_of_path(section_path1)
             center2 = prim.GeometricFunctions.get_center_of_path(section_path2)
             logger.debug(ind_list_holes)
             # TODO: Only does the first hole currently, any additional holes are ignored.
-            ind2, hole_ind = ind_list_holes[0]
-            if ind2 > ind:
+            hole_order, inds_prim, inds_hole = SpatialPlacement._get_hole_index_order(holes1,
+                                                                                      ind_list_holes) if holes1 is not None else SpatialPlacement._get_hole_index_order(
+                holes2, ind_list_holes)
+
+            # If the first hole occurs after the starting cut index, then setup the cutpath past the first hole, then
+            # look through the remaining holes.
+            start_ind = -1
+            ind_in_list = -1
+            for num, index in enumerate(inds_prim):
+                if index > ind:
+                    start_ind = index
+                    ind_in_list = num
+                    break
+            if start_ind != -1:
+                # There is a at least one hole that occurs after the start index of the cross section cut.
+                ind2 = inds_prim[ind_in_list]
+                hole_ind = inds_hole[ind_in_list]
+
+                hole1 = holes1[hole_order[ind_in_list]] if holes1 is not None else None
+                hole2 = holes2[hole_order[ind_in_list]] if holes2 is not None else None
+
                 path1 = prim.Path(section_path1[ind:ind2+1])
                 path2 = prim.Path(section_path2[ind:ind2+1])
                 cut_list_1.append(comp.CrossSection(path1))
@@ -694,41 +718,91 @@ class SpatialPlacement:
                 cut_list_1.append(section_link1)
                 cut_list_2.append(section_link2)
 
-                path1 = prim.Path(section_path1[ind2:] + section_path1[0:ind + 1])
-                path2 = prim.Path(section_path2[ind2:] + section_path2[0:ind + 1])
+                # Loop through the holes and create the cutpaths for them. If there is only 1 hole then the loop will
+                # not execute.
+                for ind_next in range(ind_in_list + 1, len(hole_order)):
+                    prev_ind = inds_prim[ind_next - 1]
+                    ind2 = inds_prim[ind_next]
+                    hole_ind = inds_hole[ind_next]
+                    hole1 = holes1[hole_order[ind_next]]
+                    hole2 = holes2[hole_order[ind_next]]
+
+                    path1 = prim.Path(section_path1[prev_ind:ind2+1])
+                    path2 = prim.Path(section_path2[prev_ind:ind2+1])
+                    cut_list_1.append(comp.CrossSection(path1))
+                    cut_list_2.append(comp.CrossSection(path2))
+
+                    section_link1 = prim.SectionLink(section_path1[ind2], hole1[hole_ind]) if hole1 is not None \
+                        else prim.SectionLink(section_path1[ind2], center1)
+                    section_link2 = prim.SectionLink(section_path2[ind2], hole2[hole_ind]) if hole2 is not None \
+                        else prim.SectionLink(section_path2[ind2], center2)
+                    cut_list_1.append(section_link1)
+                    cut_list_2.append(section_link2)
+
+                    path1 = prim.Path(hole1[hole_ind:] + hole1[0:hole_ind + 1]) if hole1 is not None else prim.Path([center1] * len(hole2))
+                    path2 = prim.Path(hole2[hole_ind:] + hole2[0:hole_ind + 1]) if hole2 is not None else prim.Path([center2] * len(hole1))
+                    cut_list_1.append(comp.CrossSection(path1))
+                    cut_list_2.append(comp.CrossSection(path2))
+
+                    section_link1 = prim.SectionLink(hole1[hole_ind], section_path1[ind2]) if hole1 is not None \
+                        else prim.SectionLink(center1, section_path1[ind2])
+                    section_link2 = prim.SectionLink(hole2[hole_ind], section_path2[ind2]) if hole2 is not None \
+                        else prim.SectionLink(center2, section_path2[ind2])
+                    cut_list_1.append(section_link1)
+                    cut_list_2.append(section_link2)
+
+                # Complete the circuit from the last hole position to the final point in the cross section path
+                path1 = prim.Path(section_path1[inds_prim[-1]:])
+                path2 = prim.Path(section_path2[inds_prim[-1]:])
+                cut_list_1.append(comp.CrossSection(path1))
+                cut_list_2.append(comp.CrossSection(path2))
+
+                # todo: check for any holes prior to ind before adding path from 0:ind+1
+                # All holes occur before the start index of the cut.
+                path1 = prim.Path(section_path1[0:ind+1])
+                path2 = prim.Path(section_path2[0:ind+1])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
             else:
-                path1 = prim.Path(section_path1[ind:] + section_path1[0:ind2 + 1])
-                path2 = prim.Path(section_path2[ind:] + section_path2[0:ind2 + 1])
+                # All holes occur before the start index of the cut.
+                path1 = prim.Path(section_path1[ind:])
+                path2 = prim.Path(section_path2[ind:])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
 
-                section_link1 = prim.SectionLink(section_path1[ind2], hole1[hole_ind]) if hole1 is not None \
-                    else prim.SectionLink(section_path1[ind2], center1)
-                section_link2 = prim.SectionLink(section_path2[ind2], hole2[hole_ind]) if hole2 is not None \
-                    else prim.SectionLink(section_path2[ind2], center2)
-                cut_list_1.append(section_link1)
-                cut_list_2.append(section_link2)
-
-                path1 = prim.Path(hole1[hole_ind:] + hole1[0:hole_ind + 1]) if hole1 is not None \
-                    else prim.Path([center1] * len(hole2))
-                path2 = prim.Path(hole2[hole_ind:] + hole2[0:hole_ind + 1]) if hole2 is not None \
-                    else prim.Path([center2] * len(hole1))
+                path1 = prim.Path(section_path1[0:inds_prim[0]])
+                path2 = prim.Path(section_path2[0:inds_prim[0]])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
 
-                section_link1 = prim.SectionLink(hole1[hole_ind], section_path1[ind2]) if hole1 is not None \
-                    else prim.SectionLink(center1, section_path1[ind2])
-                section_link2 = prim.SectionLink(hole2[hole_ind], section_path2[ind2]) if hole2 is not None \
-                    else prim.SectionLink(center2, section_path2[ind2])
-                cut_list_1.append(section_link1)
-                cut_list_2.append(section_link2)
+                # Loop through the holes and create the cutpaths for them. If there is only 1 hole then the loop will
+                # not execute.
+                for ind_next in range(start_ind + 1, len(hole_order)):
+                    ind2 = inds_prim[ind_next]
+                    hole_ind = inds_hole[ind_next]
+                    hole1 = holes1[hole_order[ind_next]]
+                    hole2 = holes2[hole_order[ind_next]]
 
-                path1 = prim.Path(section_path1[ind2:ind+1])
-                path2 = prim.Path(section_path2[ind2:ind+1])
-                cut_list_1.append(comp.CrossSection(path1))
-                cut_list_2.append(comp.CrossSection(path2))
+                    section_link1 = prim.SectionLink(section_path1[ind2], hole1[hole_ind]) if hole1 is not None \
+                        else prim.SectionLink(section_path1[ind2], center1)
+                    section_link2 = prim.SectionLink(section_path2[ind2], hole2[hole_ind]) if hole2 is not None \
+                        else prim.SectionLink(section_path2[ind2], center2)
+                    cut_list_1.append(section_link1)
+                    cut_list_2.append(section_link2)
+
+                    path1 = prim.Path(hole1[hole_ind:] + hole1[0:hole_ind + 1]) if hole1 is not None else prim.Path([center1] * len(hole2))
+                    path2 = prim.Path(hole2[hole_ind:] + hole2[0:hole_ind + 1]) if hole2 is not None else prim.Path([center2] * len(hole1))
+                    cut_list_1.append(comp.CrossSection(path1))
+                    cut_list_2.append(comp.CrossSection(path2))
+
+                    section_link1 = prim.SectionLink(hole1[hole_ind], section_path1[ind2]) if hole1 is not None \
+                        else prim.SectionLink(center1, section_path1[ind2])
+                    section_link2 = prim.SectionLink(hole2[hole_ind], section_path2[ind2]) if hole2 is not None \
+                        else prim.SectionLink(center2, section_path2[ind2])
+                    cut_list_1.append(section_link1)
+                    cut_list_2.append(section_link2)
+
+                    # todo: This case is not complete.
         else:
             path1 = prim.Path(section_path1[ind:] + section_path1[0:ind + 1])
             path2 = prim.Path(section_path2[ind:] + section_path2[0:ind + 1])
@@ -905,6 +979,32 @@ class SpatialPlacement:
         path2 = prim.GeometricFunctions.close_path(path2)
 
         return comp.CrossSection(prim.Path(path1)), comp.CrossSection(prim.Path(path2))
+
+    @staticmethod
+    def _get_hole_index_order(holes, ind_list_holes):
+        """
+        returns three lists defining the sorted order for cutting embedded holes.
+
+        :param list[list[prim.Point]] holes: List of hole data.
+        :param list[list[int,int]] ind_list_holes:
+        :return:
+        """
+        hole_order_list = list()
+        ind_hole = list()
+        ind_primary = list()
+
+        for ind in range(0, len(holes)):
+            min_ind = sys.maxsize
+            ind_to_use = 0
+            for ind2 in range(0, len(ind_list_holes)):
+                if min_ind > ind_list_holes[ind2][0] and ind2 not in hole_order_list:
+                    min_ind = ind_list_holes[ind2][0]
+                    ind_to_use = ind2
+            hole_order_list.append(ind_to_use)
+            ind_primary.append(min_ind)
+            ind_hole.append(ind_list_holes[ind_to_use][1])
+
+        return hole_order_list, ind_primary, ind_hole
 
     def _get_section_order(self, cut_piece):
         """

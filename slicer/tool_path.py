@@ -176,7 +176,7 @@ class ToolPath():
         return ToolPath(path1, path2)
 
     @staticmethod
-    def create_tool_path_from_cut_path(cut_path, wire_cutter):
+    def create_tool_path_from_cut_path(cut_path, wire_cutter, output_dir=None):
         """
 
         :param compx.CutPath cut_path:
@@ -221,9 +221,13 @@ class ToolPath():
                 path2w.extend(tmp_path_2)
                 speed_list.extend([wire_cutter.min_speed]*num_points)
 
-        prim.GeometricFunctions.plot_path(path1w, 'k')
-        prim.GeometricFunctions.plot_path(path2w, 'r')
-        plt.show()
+        plt.figure()
+        prim.GeometricFunctions.plot_path(path1w, 'k', scatter=False)
+        prim.GeometricFunctions.plot_path(path2w, 'r', scatter=False)
+        if output_dir is not None:
+            plt.savefig(os.path.join(output_dir, 'tool_path.png'))
+        else:
+            plt.show()
 
         for idx in range(0, len(path1w)):
             line = prim.Line.line_from_points(path1w[idx], path2w[idx])

@@ -12,3 +12,11 @@ def get_r_and_c_from_num(num):
                     break
 
     return ret_val
+
+
+def is_float(num):
+    try:
+        float(num)
+        return True
+    except ValueError:
+        return False

@@ -1,22 +1,21 @@
 import logging
 import os
+import matplotlib
 import tkinter
 
-import matplotlib
-
+import gui.window
 import slicer.slice_manager as sm
 import wire_slicer
-import gui.window
 from geometry.primative import WorkPiece
 from slicer.wire_cutter import WireCutter
 
 
 def main():
     wire_slicer.setup(logger_level=logging.DEBUG)
-    main_window = gui.window.MainWindow('Test Gui', width=800, height=600)
-    tkinter.mainloop()
+    # main_window = gui.window.MainWindow('Test Gui', width=800, height=600)
+    # tkinter.mainloop()
     #
-    # matplotlib.use('SVG')
+    matplotlib.use('SVG')
 
     # test_json = os.path.join(r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests', 'Nebula_V2_Fuse', 'json',
     #                          'spatial_placement_bf_cp_gen.json')
@@ -76,13 +75,13 @@ def main():
     # del wing
     # wing = serializer.decode(os.path.join(output_dir, 'wing.json'))
 
-    # wire_len = 245
-    # wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=150.0, min_speed=30,
-    #                          release_height=100.0,
-    #                          start_height=10.0, start_depth=20.0)
-    # wire_cutter.set_kerf(kerf=1.0, max_kerf=1.2)
-    # #
-    # wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
+    wire_len = 245
+    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=150.0, min_speed=30,
+                             release_height=100.0,
+                             start_height=10.0, start_depth=20.0, name='base')
+    wire_cutter.set_kerf(kerf=1.0, max_kerf=1.2)
+    #
+    wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
     #
     # wing.prep_for_slicing()
     # wing.center_to_wire_cutter(wire_cutter=wire_cutter)
@@ -109,13 +108,15 @@ def main():
     # slice_manager.stl_to_gcode(stl_path=stl_path, name='TestJet', output_dir=output_dir, subdivisions=4, units='mm',
     #                            wall_thickness=12)
     # ==================================================================================================================
-    # work_piece = WorkPiece(width=520, height=300, thickness=36.5)
+    work_piece = WorkPiece(width=340, height=240, thickness=18.6)
     # slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
     #
-    # stl_path = os.path.join(os.path.dirname(__name__), r'./assets/STLs/Fuse50mmJet.stl')
-    # #hollow_section_list = [2, 3, 4, 5, 6]
-    # slice_manager.stl_to_gcode(stl_path=stl_path, name='RCJet50mm', output_dir=output_dir, subdivisions=4, units='mm',
-    #                            wall_thickness=12, section_gap=3, open_nose=False) #hollow_section_list=hollow_section_list)
+    stl_path = r"M:\Projects\MicroDLG\wing_left_plug.stl"
+    # hollow_section_list = [2, 3, 4, 5, 6]
+    sm.SliceManager.stl_to_gcode(stl_path=stl_path, name='dlg_left_wing', output_dir=output_dir, subdivisions=1,
+                                 units='mm',
+                                 wall_thickness=0, section_gap=3, open_nose=False, work_piece=work_piece,
+                                 wire_cutter=wire_cutter)  # hollow_section_list=hollow_section_list)
     # ==================================================================================================================
 
     # r, c = util.util_functions.get_r_and_c_from_num(len(section_list))
