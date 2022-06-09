@@ -30,6 +30,7 @@ class WireCutter(object):
         self.dynamic_tension = dynamic_tension
         self.dynamic_tension_motor_letter = None
         self.dynamic_tension_spool_radius = None
+        self.reverse = False
 
     def set_gcode_statup(self, g_code):
         """Sets the initializing test_g_code for the machine.
@@ -53,3 +54,6 @@ class WireCutter(object):
 
     def set_dynamic_tension_spool_radius(self, spool_radius):
         self.dynamic_tension_spool_radius = spool_radius
+
+    def reverse_dynamic_tension(self, reverse):
+        self.reverse = reverse

@@ -108,15 +108,15 @@ def main():
     # slice_manager.stl_to_gcode(stl_path=stl_path, name='TestJet', output_dir=output_dir, subdivisions=4, units='mm',
     #                            wall_thickness=12)
     # ==================================================================================================================
-    work_piece = WorkPiece(width=340, height=240, thickness=18.6)
-    # slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
-    #
-    stl_path = r"M:\Projects\MicroDLG\wing_left_plug.stl"
-    # hollow_section_list = [2, 3, 4, 5, 6]
-    sm.SliceManager.stl_to_gcode(stl_path=stl_path, name='dlg_left_wing', output_dir=output_dir, subdivisions=1,
-                                 units='mm',
-                                 wall_thickness=0, section_gap=3, open_nose=False, work_piece=work_piece,
-                                 wire_cutter=wire_cutter)  # hollow_section_list=hollow_section_list)
+    # work_piece = WorkPiece(width=340, height=240, thickness=18.6)
+    # # slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
+    # #
+    # stl_path = r"M:\Projects\MicroDLG\wing_left_plug.stl"
+    # # hollow_section_list = [2, 3, 4, 5, 6]
+    # sm.SliceManager.stl_to_gcode(stl_path=stl_path, name='dlg_left_wing', output_dir=output_dir, subdivisions=1,
+    #                              units='mm',
+    #                              wall_thickness=0, section_gap=3, open_nose=False, work_piece=work_piece,
+    #                              wire_cutter=wire_cutter)  # hollow_section_list=hollow_section_list)
     # ==================================================================================================================
 
     # r, c = util.util_functions.get_r_and_c_from_num(len(section_list))

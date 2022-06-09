@@ -151,6 +151,21 @@ class CrossSectionPair(object):
             plt.plot([center['x'], center['x'] + np.cos(np.deg2rad(upper_range)) * radius],
                      [center['y'], center['y'] + np.sin(np.deg2rad(upper_range)) * radius])
 
+    def plot_gui(self, plot1, font_color, scatter_color1, scatter_color2):
+        def plot(plot1):
+            size = len(self._data)
+            x = np.zeros(size)
+            y = np.zeros(size)
+
+            for i in range(0, size):
+                x[i] = self._data[i]['x']
+                y[i] = self._data[i]['y']
+            plot1.plot(x, y, font_color)
+            plot1.plot(x, y, 'v', markersize=3, color=scatter_color1)
+            plot1.axis('equal')
+
+        return plot
+
     def apply_kerf(self, kerf, max_kerf):
         """
         Applies the kerf value to the two Cross Sections to prepare for cutting with a wire cutter.
@@ -301,8 +316,24 @@ class CrossSection(object):
         logger = logging.getLogger(__name__)
         prim.GeometricFunctions.plot_path(self.get_path(), color=color, scatter=scatter)
         if self.holes is not None:
-            # logger.debug('hole_path: %s', self.get_path_hole())
-            prim.GeometricFunctions.plot_path(self.get_path_hole(), color=color, scatter=scatter)
+            for hole in self.get_path_hole():
+                prim.GeometricFunctions.plot_path(hole, color=color, scatter=scatter)
+
+    def plot_gui(self, font_color, scatter_color1, scatter_color2):
+
+        def plot(plot1):
+            size = len(self._data)
+            x = np.zeros(size)
+            y = np.zeros(size)
+
+            for i in range(0, size):
+                x[i] = self._data[i]['x']
+                y[i] = self._data[i]['y']
+            plot1.plot(x, y, font_color)
+            plot1.plot(x, y, 'v', markersize=3, color=scatter_color1)
+            plot1.axis('equal')
+
+        return plot
 
     def translate(self, vector):
         PointManip.Transform.translate(self.get_path(), vector=vector)

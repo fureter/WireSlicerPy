@@ -225,6 +225,49 @@ class ScrollableSelectionMenu(tk.Frame):
             self.primary_canvas.config(height=self.scroll_window.winfo_reqheight())
 
 
+class PlotWindow(tk.Frame):
+    def __init__(self, master, root, **kwargs):
+        super(PlotWindow, self).__init__(master, **kwargs)
+        self.root = root
+
+        self.pack_propagate(False)
+
+        self.draw_figure = Figure(figsize=(4, 4), dpi=100)
+        self.draw_figure.set_facecolor(PrimaryStyle.SECONDARY_COLOR)
+        self.draw_canvas = FigureCanvasTkAgg(self.draw_figure, master=self)
+        self.draw_canvas.get_tk_widget().pack(expand=True)
+
+    def plot(self, callback):
+        self.draw_figure.clear()
+        self.draw_figure.clf()
+
+        plot_1 = self.draw_figure.add_subplot(111)
+        plot_1.set_facecolor(PrimaryStyle.SECONDARY_COLOR)
+        plot_1.spines['bottom'].set_color(PrimaryStyle.FONT_COLOR)
+        plot_1.spines['top'].set_color(PrimaryStyle.FONT_COLOR)
+        plot_1.spines['left'].set_color(PrimaryStyle.FONT_COLOR)
+        plot_1.spines['right'].set_color(PrimaryStyle.FONT_COLOR)
+        for label in plot_1.xaxis.get_ticklabels():
+            label.set_color(PrimaryStyle.FONT_COLOR)
+        for label in plot_1.yaxis.get_ticklabels():
+            label.set_color(PrimaryStyle.FONT_COLOR)
+        for line in plot_1.yaxis.get_ticklines():
+            line.set_color(PrimaryStyle.FONT_COLOR)
+        for line in plot_1.xaxis.get_ticklines():
+            line.set_color(PrimaryStyle.FONT_COLOR)
+        for line in plot_1.xaxis.get_gridlines():
+            line.set_color(PrimaryStyle.FONT_COLOR)
+
+        for line in plot_1.yaxis.get_gridlines():
+            line.set_color(PrimaryStyle.FONT_COLOR)
+            line.set_markeredgewidth(8)
+
+        # Call the plotting callback for the given object
+        callback(plot_1)
+
+        self.draw_canvas.draw()
+
+
 class MainWindow(tk.Tk):
     def __init__(self, title, width, height):
         super(MainWindow, self).__init__(baseName=title)
@@ -342,22 +385,22 @@ class EmbeddedWindow(tk.Frame):
         self.root = root
 
     def update_from_project(self):
-        raise NotImplemented('update_from_project not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('update_from_project not Implemented for WindowType: %s' % self.window_type)
 
     def add_item(self):
-        raise NotImplemented('add_item not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('add_item not Implemented for WindowType: %s' % self.window_type)
 
     def delete_item(self, index):
-        raise NotImplemented('delete_item not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('delete_item not Implemented for WindowType: %s' % self.window_type)
 
     def update_gui(self, index):
-        raise NotImplemented('update_gui not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('update_gui not Implemented for WindowType: %s' % self.window_type)
 
     def get_curr_name(self):
-        raise NotImplemented('get_curr_name not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('get_curr_name not Implemented for WindowType: %s' % self.window_type)
 
     def reset(self):
-        raise NotImplemented('reset not Implemented for WindowType: %s' % self.window_type)
+        raise NotImplementedError('reset not Implemented for WindowType: %s' % self.window_type)
 
 
 class HomeWindow(EmbeddedWindow):
@@ -473,22 +516,25 @@ class MachineWindow(EmbeddedWindow):
 
         self.machines = list()
         self.machines.append(wc.WireCutter(name='short', wire_length=245, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           min_speed=30, release_height=80.0, start_height=10.0, start_depth=20.0,
                                            dynamic_tension=True))
         self.machines[-1].set_dynamic_tension_spool_radius(7.79)
         self.machines[-1].set_dynamic_tension_motor_letter('V')
+        self.machines[-1].reverse_dynamic_tension(True)
 
         self.machines.append(wc.WireCutter(name='baseline', wire_length=640, max_height=300.0, max_speed=150.0,
-                                           min_speed=50, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           min_speed=50, release_height=80.0, start_height=10.0, start_depth=20.0,
                                            dynamic_tension=True))
         self.machines[-1].set_dynamic_tension_spool_radius(7.79)
         self.machines[-1].set_dynamic_tension_motor_letter('V')
+        self.machines[-1].reverse_dynamic_tension(True)
 
         self.machines.append(wc.WireCutter(name='extended', wire_length=1000, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=100.0, start_height=10.0, start_depth=20.0,
+                                           min_speed=30, release_height=80.0, start_height=10.0, start_depth=20.0,
                                            dynamic_tension=True))
         self.machines[-1].set_dynamic_tension_spool_radius(7.79)
         self.machines[-1].set_dynamic_tension_motor_letter('V')
+        self.machines[-1].reverse_dynamic_tension(True)
 
         self.grid_rowconfigure(index=0, weight=100)
         self.grid_columnconfigure(index=0, weight=1)
@@ -1569,6 +1615,23 @@ class CADWindow(EmbeddedWindow):
                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.bot_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        self.bot_frame.grid_columnconfigure(index=0, weight=1)
+        self.bot_frame.grid_rowconfigure(index=0, weight=1)
+
+        self.stl_prev_window_label_frame = tk.LabelFrame(self.bot_frame, text='Slice Preview:',
+                                                         background=PrimaryStyle.SECONDARY_COLOR,
+                                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                         fg=PrimaryStyle.FONT_COLOR)
+        self.stl_prev_window_label_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.stl_prev_window_label_frame.grid_columnconfigure(index=0, weight=1)
+        self.stl_prev_window_label_frame.grid_rowconfigure(index=0, weight=1)
+
+        self.stl_prev_window = CADWindow.STLPreviewWindow(self.stl_prev_window_label_frame, root=self,
+                                                          background=PrimaryStyle.SECONDARY_COLOR,
+                                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.stl_prev_window.grid(row=0, column=0, sticky=tk.NSEW)
 
     def get_file_options(self):
         files = list()
@@ -1577,6 +1640,24 @@ class CADWindow(EmbeddedWindow):
         for i in range(4, 8):
             files.append('OBJ%s' % i)
         return files
+
+    def update_from_project(self):
+        raise NotImplementedError('update_from_project not Implemented for WindowType: %s' % self.window_type)
+
+    def add_item(self):
+        raise NotImplementedError('add_item not Implemented for WindowType: %s' % self.window_type)
+
+    def delete_item(self, index):
+        raise NotImplementedError('delete_item not Implemented for WindowType: %s' % self.window_type)
+
+    def update_gui(self, index):
+        raise NotImplementedError('update_gui not Implemented for WindowType: %s' % self.window_type)
+
+    def get_curr_name(self):
+        raise NotImplementedError('get_curr_name not Implemented for WindowType: %s' % self.window_type)
+
+    def reset(self):
+        raise NotImplementedError('reset not Implemented for WindowType: %s' % self.window_type)
 
     class WorkpieceWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -1609,6 +1690,57 @@ class CADWindow(EmbeddedWindow):
             self.settings_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
                                      pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+    class STLPreviewWindow(tk.Frame):
+        def __init__(self, master, root, **kwargs):
+            super(CADWindow.STLPreviewWindow, self).__init__(master, **kwargs)
+            self.root = root
+
+            self.plots = list()
+
+            self.grid_rowconfigure(index=0, weight=1)
+            self.grid_columnconfigure(index=0, weight=1)
+
+            self.canvas_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+            self.canvas_frame.grid(row=0, column=0, sticky=tk.NSEW, columnspan=2)
+            self.canvas_frame.grid_rowconfigure(index=0, weight=29)
+            self.canvas_frame.grid_rowconfigure(index=1, weight=1)
+            self.canvas_frame.grid_columnconfigure(index=0, weight=1)
+            self.canvas_frame.grid_propagate(False)
+            self.canvas_frame.pack_propagate(False)
+
+            self.primary_canvas = tk.Canvas(self.canvas_frame,
+                                            background=PrimaryStyle.PRIMARY_COLOR)
+            self.primary_canvas.grid(row=0, column=0, sticky=tk.NSEW)
+            self.primary_canvas.pack_propagate(False)
+            self.primary_canvas.grid_propagate(False)
+
+            self.scroll_window = tk.Frame(self.primary_canvas,
+                                          background=PrimaryStyle.PRIMARY_COLOR)
+
+            self.primary_canvas.create_window(0, 0, window=self.scroll_window, anchor=tk.NW)
+
+            self.h_scroll_bar = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL, command=self.primary_canvas.yview,
+                                             bg=PrimaryStyle.PRIMARY_COLOR)
+            self.h_scroll_bar.grid(row=1, column=0, sticky=tk.NSEW)
+            self.h_scroll_bar.lift(self.scroll_window)
+
+            self.primary_canvas.config(yscrollcommand=self.h_scroll_bar.set,
+                                       scrollregion=self.primary_canvas.bbox("all"))
+
+        def add_plots(self, cross_sections):
+            for cross_section in cross_sections:
+                self.plots.append(PlotWindow(self.primary_canvas, self, background=PrimaryStyle.PRIMARY_COLOR,
+                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS))
+                self.plots[-1].pack(side=tk.LEFT, fill=None, anchor=tk.CENTER)
+                self.plots[-1].plot(callback=cross_section.plot_gui(PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR,
+                                                                    PrimaryStyle.QUATERNARY_COLOR))
+
+        def delete_plots(self):
+            pass
 
 
 class DatabaseWindow(EmbeddedWindow):

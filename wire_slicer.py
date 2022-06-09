@@ -36,6 +36,9 @@ import sys
 sys.coinit_flags = 0x0
 import tkinter as tk
 
+import matplotlib
+matplotlib.use("svg")
+
 import gui.window
 
 

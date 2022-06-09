@@ -3,6 +3,7 @@ class PrimaryStyle(object):
     PRIMARY_COLOR = '#293438'
     SECONDARY_COLOR = '#1d2429'
     TETRARY_COLOR = '#CC5500'
+    QUATERNARY_COLOR = '#0055CC'
 
     SELECT_COLOR = TETRARY_COLOR
 
