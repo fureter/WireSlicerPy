@@ -1,4 +1,7 @@
+import datetime
 import logging
+import os
+import sys
 import timeit
 
 import numpy as np
@@ -58,7 +61,7 @@ class GCodeGenerator():
         else:
             raise NotImplementedError('Selected travel type of %s is not implemented' % travel_type)
 
-    def create_relative_gcode(self, file_path, tool_path, wire_cutter):
+    def create_relative_gcode(self, output_dir, name, tool_path, wire_cutter, part=None):
         """
 
         :param file_path:
@@ -66,9 +69,21 @@ class GCodeGenerator():
         :param WireCutter wire_cutter:
         :return:
         """
+        file_path = os.path.join(output_dir, '%s_gcode_p%s.txt' % (name, part)) if part is not None else os.path.join(
+            output_dir, '%s_gcode.txt' % name)
+
+        info_file_path = os.path.join(output_dir,
+                                      '%s_info_p%s.txt' % (name, part)) if part is not None else os.path.join(
+            output_dir, '%s_info.txt' % name)
+
         self.logger.info('Creating relative gcode with travel type: %s at location: %s' %
                          (TravelType.to_str(self._travel_type), file_path))
         cmd_list = list()
+        cut_time = 0
+        max_x = 0
+        max_y = 0
+        min_x = sys.maxsize
+        min_y = sys.maxsize
 
         if tool_path.speed_list is None:
             speed_list = [self._wire_cutter.min_speed]
@@ -100,35 +115,63 @@ class GCodeGenerator():
                     curr_speed = speed_list[ind]
                     cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
                     self.logger.debug(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
-
+            dist = 0
+            feed_rate = 0
             movement = movement_list[ind]
             if wire_cutter.dynamic_tension:
 
                 # Wire length adjustments account for the change in the wire length between each gantry, plus the change
                 # in the wire length between the gantry head and the tensioning motor.
-                # TODO: Assumes the tensioning motor is mounted above the XY Gantry, replace dY with whichever gantry
-                #  has the tensioning
+                # TODO: Assumes the tensioning motor is mounted above the XY Gantry, replace first dY with whichever
+                #  gantry has the tensioning
                 # Equation below is from taking the derivative of the wire length wrt a discrete 'interval'
                 # dL = -dY + (Lx(dX-dU) + Ly(dY-dZ))/L
                 lx = posx_1 - posx_2
                 ly = posy_1 - posy_2
                 length = wire_cutter.wire_length
                 delta_wire = -movement[1] + (lx*(movement[0] - movement[2]) + ly*(movement[1]-movement[3])) / length
-                if wire_cutter.reverse:
+                if wire_cutter.dynamic_tension_reverse:
                     delta_wire *= -1
+                tension_comp = ' {motor}{dist:.6f}'.format(
+                    motor=wire_cutter.dynamic_tension_motor_letter,
+                    dist=delta_wire)
+                dist = np.sqrt(delta_wire ** 2 + movement[0]**2 + movement[1]**2 + movement[2]**2 + movement[3]**2)
+                if wire_cutter.dynamic_tension_feed_comp:
+                    v = abs(delta_wire)
+                    c = abs(movement[0]) + abs(movement[1]) + abs(movement[2]) + abs(movement[3])
+                    feed_rate = (1 + v/c)*curr_speed if c != 0 else curr_speed
+                    feed_comp = ' F{feed:.3f}'.format(feed=feed_rate)
+                else:
+                    feed_rate = curr_speed
+                    feed_comp = ''
 
-                # Calculate the relative change in the wire length between the two gantries
-                posx_1 += movement[0]
-                posx_2 += movement[2]
-                posy_1 += movement[1]
-                posy_2 += movement[3]
+            else:
+                tension_comp = ''
+                feed_rate = curr_speed
+                feed_comp = ''
+                dist = np.sqrt(movement[0]**2 + movement[1]**2 + movement[2]**2 + movement[3]**2)
+
+            # Calculate the relative change in the wire length between the two gantries
+            posx_1 += movement[0]
+            posx_2 += movement[2]
+            posy_1 += movement[1]
+            posy_2 += movement[3]
+
+            if max(posx_2, posx_1) > max_x:
+                max_x = max(posx_2, posx_1)
+            if max(posy_2, posy_1) > max_y:
+                max_y = max(posy_2, posy_1)
+            if min(posx_2, posx_1) < min_x:
+                min_x = min(posx_2, posx_1)
+            if min(posy_2, posy_1) < min_y:
+                min_y = min(posy_2, posy_1)
 
             cmd_list.append(enum.g1_linear_move(
                 self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2],
-                                                  movement[3]) + ' {motor}{dist:.6f}'.format(
-                    motor=wire_cutter.dynamic_tension_motor_letter,
-                    dist=delta_wire) if wire_cutter.dynamic_tension else ''))
+                                                  movement[3]) + tension_comp + feed_comp))
+            cut_time += (dist / feed_rate) * 60.0  # [mm] / [mm/min] * [s/min] => [s]
 
+        self._save_info_file(info_file_path, cut_time, max_x, max_y, min_x, min_y)
         self._save_gcode_file(file_path, cmd_list)
 
     def create_absolute_gcode(self, file_path, tool_path):
@@ -276,3 +319,13 @@ class GCodeGenerator():
         with open(file_path, 'wt') as gcode_file:
             for cmd in cmd_list:
                 gcode_file.write(cmd + '\n')
+
+    def _save_info_file(self, file_path, cut_time, max_x, max_y, min_x, min_y):
+        with open(file_path, 'wt') as info_file:
+            info_file.write('Estimated cut time: %s\n' % str(datetime.timedelta(seconds=cut_time)))
+            info_file.write('Max X position: %smm\n' % max_x)
+            info_file.write('Max Y position: %smm\n' % max_y)
+            info_file.write('Min X position: %smm\n' % min_x)
+            info_file.write('Min Y position: %smm\n' % min_y)
+            info_file.write('Total X span: %smm\n' % (max_x - min_x))
+            info_file.write('Total Y span: %smm\n' % (max_y - min_y))

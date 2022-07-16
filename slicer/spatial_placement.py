@@ -672,9 +672,8 @@ class SpatialPlacement:
             center1 = prim.GeometricFunctions.get_center_of_path(section_path1)
             center2 = prim.GeometricFunctions.get_center_of_path(section_path2)
             logger.debug(ind_list_holes)
-            # TODO: Only does the first hole currently, any additional holes are ignored.
-            hole_order, inds_prim, inds_hole = SpatialPlacement._get_hole_index_order(holes1,
-                                                                                      ind_list_holes) if holes1 is not None else SpatialPlacement._get_hole_index_order(
+            hole_order, inds_prim, inds_hole = SpatialPlacement.get_hole_index_order(holes1,
+                                                                                     ind_list_holes) if holes1 is not None else SpatialPlacement.get_hole_index_order(
                 holes2, ind_list_holes)
 
             # If the first hole occurs after the starting cut index, then setup the cutpath past the first hole, then
@@ -770,8 +769,8 @@ class SpatialPlacement:
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
 
-                path1 = prim.Path(section_path1[0:inds_prim[0]])
-                path2 = prim.Path(section_path2[0:inds_prim[0]])
+                path1 = prim.Path(section_path1[0:inds_prim[0]+1])
+                path2 = prim.Path(section_path2[0:inds_prim[0]+1])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
 
@@ -802,7 +801,14 @@ class SpatialPlacement:
                     cut_list_1.append(section_link1)
                     cut_list_2.append(section_link2)
 
-                    # todo: This case is not complete.
+                    # todo: This case is not complete. Will most likely only work for a single hole
+
+                path1 = prim.Path(section_path1[inds_prim[-1]:ind+1])
+                path2 = prim.Path(section_path2[inds_prim[-1]:ind+1])
+                cut_list_1.append(comp.CrossSection(path1))
+                cut_list_2.append(comp.CrossSection(path2))
+
+
         else:
             path1 = prim.Path(section_path1[ind:] + section_path1[0:ind + 1])
             path2 = prim.Path(section_path2[ind:] + section_path2[0:ind + 1])
@@ -981,7 +987,7 @@ class SpatialPlacement:
         return comp.CrossSection(prim.Path(path1)), comp.CrossSection(prim.Path(path2))
 
     @staticmethod
-    def _get_hole_index_order(holes, ind_list_holes):
+    def get_hole_index_order(holes, ind_list_holes):
         """
         returns three lists defining the sorted order for cutting embedded holes.
 

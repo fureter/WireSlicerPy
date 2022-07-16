@@ -64,11 +64,12 @@ class CrossSectionPair(object):
 
                 if hole1 is not None:
                     tmp_list = list()
-                    for point in hole1:
-                        theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                    for hole in hole1:
+                        for point in hole:
+                            theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
 
-                        if lower_range < theta <= upper_range:
-                            tmp_list.append(copy.deepcopy(point))
+                            if lower_range < theta <= upper_range:
+                                tmp_list.append(copy.deepcopy(point))
                     curr_section1 = PointManip.reorder_2d_cw_subdivide(outer_points=copy.deepcopy(curr_section1),
                                                                        inner_points=tmp_list, center=center)
                 else:
@@ -82,11 +83,12 @@ class CrossSectionPair(object):
                         curr_section2.append(copy.deepcopy(point))
                 if hole2 is not None:
                     tmp_list = list()
-                    for point in hole2:
-                        theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
+                    for hole in hole2:
+                        for point in hole:
+                            theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
 
-                        if lower_range < theta <= upper_range:
-                            tmp_list.append(copy.deepcopy(point))
+                            if lower_range < theta <= upper_range:
+                                tmp_list.append(copy.deepcopy(point))
                     curr_section2 = PointManip.reorder_2d_cw_subdivide(outer_points=copy.deepcopy(curr_section2),
                                                                        inner_points=tmp_list, center=center)
                 else:
@@ -256,6 +258,11 @@ class CrossSection(object):
                     kerf_amount = min(kerf_amount, max_kerf)
                     # Holes are offset inwards rather than outwards
                     new_path = prim.GeometricFunctions.offset_curve(path, kerf_amount, 1, 1, add_leading_edge=False)
+
+                    # If the kerf amount results in no valid path, just use the original path instead.
+                    if len(new_path) == 0:
+                        new_path = path
+
                     new_path = prim.GeometricFunctions.normalize_path_points(new_path, num_points=512)
                     if new_path[0] != new_path[-1]:
                         new_path = prim.GeometricFunctions.close_path(new_path)
@@ -385,7 +392,8 @@ class CrossSection(object):
         # path = prim.Path(prim.GeometricFunctions.offset_curve(self.get_path(), thickness, dir=1, divisions=1))
         path = copy.deepcopy(self.get_path())
         path = prim.GeometricFunctions.clean_intersections(
-            prim.GeometricFunctions.parallel_curve(path, thickness, 1, False), path, thickness)
+            prim.GeometricFunctions.parallel_curve(prim.GeometricFunctions.normalize_path_points(path, num_points=254),
+                                                   thickness, 1, False), path, thickness)
         if path is not None and len(path) > 0:
             path = prim.GeometricFunctions.close_path(path)
             path = prim.GeometricFunctions.normalize_path_points(path, num_points=512)
@@ -439,10 +447,10 @@ class CutPath():
                     if plot:
                         plt.scatter([self.cut_list_1[indx + 1].get_path()[0]['x']],
                                     [self.cut_list_1[indx + 1].get_path()[0]['y']],
-                                    c='C9')
+                                    c='C9', s=10)
                         plt.scatter([self._cut_list_1[indx].get_path()[-1]['x']],
                                     [self._cut_list_1[indx].get_path()[-1]['y']],
-                                    c='C10')
+                                    c='C10', s=10)
                     ret_val = False
                 if np.sqrt(
                         (self.cut_list_2[indx + 1].get_path()[0] - self._cut_list_2[indx].get_path()[-1]) ** 2) > tol:
@@ -451,10 +459,10 @@ class CutPath():
                     if plot:
                         plt.scatter([self.cut_list_2[indx + 1].get_path()[0]['x']],
                                     [self.cut_list_2[indx + 1].get_path()[0]['y']],
-                                    c='C11')
+                                    c='C11', s=10)
                         plt.scatter([self._cut_list_2[indx].get_path()[-1]['x']],
                                     [self._cut_list_2[indx].get_path()[-1]['y']],
-                                    c='C12')
+                                    c='C12', s=10)
                     ret_val = False
 
         return ret_val
@@ -524,6 +532,14 @@ class CutPath():
         cut_path = CutPath([], [])
         root_foil = copy.deepcopy(wing.root_airfoil)
         tip_foil = copy.deepcopy(wing.tip_airfoil)
+        if root_foil[0] != root_foil[-1]:
+            root_foil = prim.GeometricFunctions.close_path(root_foil)
+        if tip_foil[0] != tip_foil[-1]:
+            tip_foil = prim.GeometricFunctions.close_path(tip_foil)
+
+        if wing.root_holes is not None:
+            holes_root = copy.deepcopy(wing.root_holes)
+            holes_tip = copy.deepcopy(wing.tip_holes)
 
         if wing.root_kerf is not None:
             kerf_root = wing.root_kerf
@@ -542,7 +558,13 @@ class CutPath():
             offset = leading_edge_root['x'] if leading_edge_root['x'] < leading_edge_tip['x'] else leading_edge_tip['x']
             if offset < 0:
                 PointManip.Transform.translate(root_foil, [-offset, 0, 0])
+                if wing.root_holes is not None:
+                    for hole in holes_root:
+                        PointManip.Transform.translate(hole.get_path(), [-offset, 0, 0])
                 PointManip.Transform.translate(tip_foil, [-offset, 0, 0])
+                if wing.tip_holes is not None:
+                    for hole in holes_tip:
+                        PointManip.Transform.translate(hole.get_path(), [-offset, 0, 0])
 
             if debug_kerf:
                 prim.GeometricFunctions.plot_path(root_foil, 3, scatter=False)
@@ -592,7 +614,13 @@ class CutPath():
         # Translate both airfoils by the same offset to keep them inline
         logger.debug('Next Point X: %s', next_point1['x'])
         PointManip.Transform.translate(root_foil, [next_point1['x'], next_point1['y'], 0])
+        if wing.root_holes is not None:
+            for hole in holes_root:
+                PointManip.Transform.translate(hole.get_path(), [next_point1['x'], next_point1['y'], 0])
         PointManip.Transform.translate(tip_foil, [next_point1['x'], next_point1['y'], 0])
+        if wing.tip_holes is not None:
+            for hole in holes_tip:
+                PointManip.Transform.translate(hole.get_path(), [next_point1['x'], next_point1['y'], 0])
         logger.debug('Root Airfoil Leading Edge: %s', root_foil[0])
 
         next_point1 += root_foil[0] - next_point1
@@ -626,8 +654,50 @@ class CutPath():
             plt.savefig(os.path.join(output_dir, 'cut_path_debug.png'))
         else:
             plt.show()
+        if wing.root_holes is not None:
+            holes = holes_root
+            holes_tip = holes_tip
+            root_hole_order, tip_hole_order = wing.get_closest_point_to_hole()
+            hole_order, inds_prim, inds_hole = SpatialPlacement.get_hole_index_order(holes,
+                                                                                     root_hole_order)
+            hole_order_tip, inds_prim_tip, inds_hole_tip = SpatialPlacement.get_hole_index_order(holes_tip,
+                                                                                                 tip_hole_order)
+            if 0 < inds_prim[0] <= root_ind_split:
+                cut_path.add_segment_to_cut_lists(CrossSection(
+                    prim.Path(root_foil[0:inds_prim[0] + 1])),
+                    CrossSection(
+                        prim.Path(tip_foil[0:inds_prim_tip[0] + 1])))
+                last_ind = -1
+                for ind in range(0, len(inds_prim)):
+                    if 0 < inds_prim[ind] <= root_ind_split:
+                        hole_root = holes[hole_order[ind]].get_path()
+                        hole_tip = holes_tip[hole_order_tip[ind]].get_path()
 
-        cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(top_root)), CrossSection(prim.Path(top_tip)))
+                        cut_path.add_segment_to_cut_lists(
+                            prim.SectionLink(root_foil[inds_prim[ind]], hole_root[inds_hole[ind]]),
+                            prim.SectionLink(tip_foil[inds_prim_tip[ind]],
+                                             hole_tip[inds_hole_tip[ind]]))
+
+                        cut_path.add_segment_to_cut_lists(
+                            CrossSection(prim.Path(hole_root[inds_hole[ind]:] + hole_root[0:inds_hole[ind] + 1])),
+                            CrossSection(
+                                prim.Path(hole_tip[inds_hole_tip[ind]:] + hole_tip[0:inds_hole_tip[ind] + 1])))
+
+                        cut_path.add_segment_to_cut_lists(
+                            prim.SectionLink(hole_root[inds_hole[ind]], root_foil[inds_prim[ind]]),
+                            prim.SectionLink(hole_tip[inds_hole_tip[ind]], tip_foil[inds_prim_tip[ind]]))
+
+                        if ind < len(inds_prim)-1 and 0 <= inds_prim[ind+1] < root_ind_split:
+                            cut_path.add_segment_to_cut_lists(
+                                CrossSection(prim.Path(root_foil[inds_prim[ind]: inds_prim[ind+1] + 1])),
+                                CrossSection(prim.Path(tip_foil[inds_prim_tip[ind]: inds_prim_tip[ind+1] + 1])))
+                        last_ind = ind
+
+                cut_path.add_segment_to_cut_lists(
+                    CrossSection(prim.Path(root_foil[inds_prim[last_ind]: root_ind_split+1])),
+                    CrossSection(prim.Path(tip_foil[inds_prim_tip[last_ind]: tip_ind_split+1])))
+        else:
+            cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(top_root)), CrossSection(prim.Path(top_tip)))
 
         start_point1 = top_root[-1]
         start_point2 = top_tip[-1]
@@ -660,9 +730,48 @@ class CutPath():
 
         cut_path.add_segment_to_cut_lists(segment_1=seg_link1, segment_2=seg_link2)
 
-        cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
+        if wing.root_holes is not None and last_ind < len(inds_prim)-1:
+            cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(list(reversed(root_foil[inds_prim[-1]:])))),
+                                              CrossSection(
+                                                  prim.Path(list(reversed(tip_foil[inds_prim_tip[-1]:])))))
+            print('debug')
+            for ind in reversed(range(last_ind+1, len(inds_prim))):
+                hole_root = holes[hole_order[ind]].get_path()
+                hole_tip = holes_tip[hole_order_tip[ind]].get_path()
+
+                cut_path.add_segment_to_cut_lists(
+                    prim.SectionLink(root_foil[inds_prim[ind]], hole_root[inds_hole[ind]]),
+                    prim.SectionLink(tip_foil[inds_prim_tip[ind]],
+                                     hole_tip[inds_hole_tip[ind]]))
+
+                cut_path.add_segment_to_cut_lists(
+                    CrossSection(prim.Path(hole_root[inds_hole[ind]:] + hole_root[0:inds_hole[ind] + 1])),
+                    CrossSection(
+                        prim.Path(hole_tip[inds_hole_tip[ind]:] + hole_tip[0:inds_hole_tip[ind] + 1])))
+
+                cut_path.add_segment_to_cut_lists(
+                    prim.SectionLink(hole_root[inds_hole[ind]], root_foil[inds_prim[ind]]),
+                    prim.SectionLink(hole_tip[inds_hole_tip[ind]], tip_foil[inds_prim_tip[ind]]))
+
+                if root_ind_split < inds_prim[ind-1] < len(root_foil):
+                    cut_path.add_segment_to_cut_lists(
+                        CrossSection(prim.Path(list(reversed(root_foil[inds_prim[ind-1]:inds_prim[ind]+1])))),
+                        CrossSection(prim.Path(list(reversed(tip_foil[inds_prim_tip[ind-1]:inds_prim_tip[ind]+1])))))
+                last_ind = ind
+
+                if len(cut_path.cut_list_1[-1].get_path()) == 0:
+                    print('debug')
+
+            cut_path.add_segment_to_cut_lists(
+                CrossSection(prim.Path(list(reversed(root_foil[root_ind_split:inds_prim[last_ind]+1])))),
+                CrossSection(prim.Path(list(reversed(tip_foil[tip_ind_split:inds_prim_tip[last_ind]+1])))))
+        else:
+            cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
 
         CutPath._add_loopback(cut_path, wire_cutter, root_z, tip_z)
+
+        if output_dir is not None:
+            cut_path.plot_cut_path(output_dir, False)
 
         return cut_path
 
@@ -728,8 +837,8 @@ class CutPath():
             for ind in range(0, len_path):
                 x[ind] = path[ind]['x']
                 y[ind] = path[ind]['y']
-            plt.plot(x, y, 'r')
-            plt.scatter([path[0]['x']], [path[0]['y']], c='C10')
+            plt.plot(x, y, 'r', linewidth=0.6)
+            plt.scatter([path[0]['x']], [path[0]['y']], c='C10', s=10)
 
         for item in self._cut_list_2:
             path = item.get_path()
@@ -739,8 +848,8 @@ class CutPath():
             for ind in range(0, len_path):
                 x[ind] = path[ind]['x']
                 y[ind] = path[ind]['y']
-            plt.plot(x, y, 'k')
-            plt.scatter([path[0]['x']], [path[0]['y']], c='C11')
+            plt.plot(x, y, 'k', linewidth=0.6)
+            plt.scatter([path[0]['x']], [path[0]['y']], c='C11', s=10)
 
         self.is_valid_cut_path(plot=True)
 
@@ -826,7 +935,7 @@ class STL():
         for ind in range(1, len(cross_section_list)):
             cross_section_pair_list.append(CrossSectionPair(copy.deepcopy(cross_section_list[ind - 1]),
                                                             copy.deepcopy(cross_section_list[ind])))
-        cross_section_pair_list.append(CrossSectionPair(cross_section_list[-2], cross_section_list[-1]))
+
         if wall_thickness > 0:
             for ind, hollow in enumerate(hollow_section_list):
                 if hollow:
@@ -950,7 +1059,6 @@ class STL():
                         prim.GeometricFunctions.plot_path([path[0]], color='C10', scatter=True, scatter_color='C20')
                         plt.axis('equal')
                         plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_f_%s.png' % ind1))
-
 
                     # Save off the transformed points as CrossSections
                     cross_section = CrossSection(section_list=[prim.Path(path)])
@@ -1084,6 +1192,9 @@ class WingSegment(object):
         self.root_chord = None
         self.tip_chord = None
 
+        self.root_holes = None
+        self.tip_holes = None
+
         self.root_kerf = None
         self.tip_kerf = None
 
@@ -1138,21 +1249,58 @@ class WingSegment(object):
             scale = self.tip_chord / actual_tip_chord
             PointManip.Transform.scale(self.tip_airfoil, [scale, scale, 1])
 
+        # Build the points for any holes that are present
+        if self.root_holes is not None:
+            for hole in self.root_holes:
+                chord_offset = hole.chord_start * self.root_chord
+                point_1, point_2 = prim.GeometricFunctions.get_points_with_chord_offset(self.root_airfoil,
+                                                                                        chord_offset)
+                if point_1['y'] > point_2['y']:
+                    point_top = point_1
+                    point_bot = point_2
+                else:
+                    point_top = point_2
+                    point_bot = point_1
+                # plt.scatter([point_top['x'], point_bot['x']], [point_top['y'], point_bot['y']],color='C5')
+                hole.build_points(self.root_chord, point_top, point_bot)
+
+            if self.tip_holes is not None:
+                for hole in self.tip_holes:
+                    chord_offset = hole.chord_start * self.tip_chord
+                    point_1, point_2 = prim.GeometricFunctions.get_points_with_chord_offset(self.tip_airfoil,
+                                                                                            chord_offset)
+                    if point_1['y'] > point_2['y']:
+                        point_top = point_1
+                        point_bot = point_2
+                    else:
+                        point_top = point_2
+                        point_bot = point_1
+                    # plt.scatter([point_top['x'], point_bot['x']], [point_top['y'], point_bot['y']],color='C6')
+                    hole.build_points(self.tip_chord, point_top, point_bot)
+            else:
+                raise ValueError('Root and Tip of wing must both have a hole if either has a hole.')
+
         # Rotate the tip airfoil by the washout amount, needs to be done before the airfoil is translated any further
         PointManip.Transform.rotate(self.tip_airfoil, [0, 0, np.deg2rad(self.washout)])
+        if self.tip_holes is not None:
+            for hole in self.tip_holes:
+                PointManip.Transform.rotate(hole.get_path(), [0, 0, np.deg2rad(self.washout)])
         self._rotated = True
 
         # Translate the tip airfoil back by the sweep amount if the sweep is a positive angle,
         # Translate the root if the sweep is a negative angle
         sweep_offset = self.span * np.sin(np.deg2rad(self.sweep))
         self.logger.info('Offsetting Airfoil by %smm to account for sweep' % sweep_offset)
-        if sweep_offset < 0:
-            PointManip.Transform.translate(self.root_airfoil, [sweep_offset, 0, 0])
-        else:
-            PointManip.Transform.translate(self.tip_airfoil, [sweep_offset, 0, 0])
+        PointManip.Transform.translate(self.tip_airfoil, [sweep_offset, 0, 0])
+        if self.tip_holes is not None:
+            for hole in self.tip_holes:
+                PointManip.Transform.translate(hole.get_path(), [sweep_offset, 0, 0])
 
         # Move the tip airfoil to the end of the span
         PointManip.Transform.translate(self.tip_airfoil, [0, 0, self.span])
+        if self.tip_holes is not None:
+            for hole in self.tip_holes:
+                PointManip.Transform.translate(hole.get_path(), [0, 0, self.span])
 
         if plot:
             x = list()
@@ -1160,19 +1308,47 @@ class WingSegment(object):
             for point in self.root_airfoil:
                 x.append(point['x'])
                 y.append(point['y'])
-            plt.plot(x, y)
+            plt.plot(x, y, color='C1')
+            if self.root_holes is not None:
+                for hole in self.root_holes:
+                    path = hole.get_path()
+                    prim.GeometricFunctions.plot_path(path, 'C2', False, scatter_color='C11')
 
             x = list()
             y = list()
             for point in self.tip_airfoil:
                 x.append(point['x'])
                 y.append(point['y'])
-            plt.plot(x, y)
+            plt.plot(x, y, color='C3')
+            if self.tip_holes is not None:
+                for hole in self.tip_holes:
+                    path = hole.get_path()
+                    prim.GeometricFunctions.plot_path(path, 'C4', False, scatter_color='C12')
             plt.axis('equal')
             if output_dir is not None:
                 plt.savefig(os.path.join(output_dir, 'prepped_wing_geom.png'))
 
         self.prepped = True
+
+    def add_hole_root(self, hole):
+        """
+
+        :param list[WingHole] hole: List of points that define the hole pattern to cut.
+        :return:
+        """
+        if self.root_holes is None:
+            self.root_holes = list()
+        self.root_holes.append(hole)
+
+    def add_hole_tip(self, hole):
+        """
+
+        :param list[WingHole] hole: List of points that define the hole pattern to cut.
+        :return:
+        """
+        if self.tip_holes is None:
+            self.tip_holes = list()
+        self.tip_holes.append(hole)
 
     def align_leading_edge_with_wire(self):
         """
@@ -1256,6 +1432,12 @@ class WingSegment(object):
             print('root offset: %s' % (des_root_pos - point_root['z']))
             PointManip.Transform.translate(self.tip_airfoil, [0, 0, des_tip_pos - point_tip['z']])
             PointManip.Transform.translate(self.root_airfoil, [0, 0, des_root_pos - point_root['z']])
+            if self.tip_holes is not None:
+                for hole in self.tip_holes:
+                    PointManip.Transform.translate(hole.get_path(), [0, 0, des_tip_pos - hole.get_path()[0]['z']])
+            if self.root_holes is not None:
+                for hole in self.root_holes:
+                    PointManip.Transform.translate(hole.get_path(), [0, 0, des_root_pos - hole.get_path()[0]['z']])
             print('')
 
     def flip_tip_and_root(self):
@@ -1363,7 +1545,7 @@ class WingSegment(object):
             y[5] = self.root_chord - self.tip_chord - self.span * np.sin(np.deg2rad(self.sweep))
             y[4] = 0
 
-        return (np.array(x), np.array(y))
+        return np.array(x), np.array(y)
 
     def plot_planform(self):
         (x, y) = self.planform_coordinates()
@@ -1389,3 +1571,149 @@ class WingSegment(object):
         plt.xlabel('Machine Z Axis (Length Along Wire mm)')
         plt.ylabel('Machine X Axis (Length Down Gantry [X, U] mm)')
         plt.plot(x, y)
+
+    def get_closest_point_to_hole(self):
+        """
+
+        :return: Tuple of lists of tuples where each tuple is the index on the main path and the index on each hole that
+         define the two points closest to one another. The first list in the top tuple is the root, the second list is
+         the tip.
+        :rtype: tuple[list[tuple(int,int)]] or None
+        """
+        ret_val = None
+        plt.figure()
+        col_ind = 0
+        prim.GeometricFunctions.plot_path(self.root_airfoil, color='C%s'%col_ind)
+        col_ind += 1
+        if self.root_holes is not None:
+            ret_val = (list(), list())
+            for hole in self.root_holes:
+                prim.GeometricFunctions.plot_path(hole.get_path(), color='C%s'%col_ind)
+                col_ind += 1
+                min_dist = sys.maxsize
+                min_ind = 0
+                min_ind_hole = 0
+                for ind_hole, point_hole in enumerate(hole.get_path()):
+                    for ind, point in enumerate(self.root_airfoil):
+                        dist = np.sqrt((point_hole - point)**2)
+                        if dist < min_dist:
+                            min_dist = dist
+                            min_ind = ind
+                            min_ind_hole = ind_hole
+                ret_val[0].append((min_ind, min_ind_hole))
+            plt.show()
+            for hole in self.tip_holes:
+                min_dist = sys.maxsize
+                min_ind = 0
+                min_ind_hole = 0
+                for ind_hole, point_hole in enumerate(hole.get_path()):
+                    for ind, point in enumerate(self.tip_airfoil):
+                        dist = np.sqrt((point_hole - point)**2)
+                        if dist < min_dist:
+                            min_dist = dist
+                            min_ind = ind
+                            min_ind_hole = ind_hole
+                ret_val[1].append((min_ind, min_ind_hole))
+        return ret_val
+
+    class WingHole(object):
+        def __init__(self, chord_start, angle, offset, start_angle, num_points):
+            self.points = None
+            if start_angle is not None and start_angle < 0:
+                start_angle += 360
+            self.start_angle = start_angle
+            self.chord_start = chord_start
+            self.angle = angle
+            self.offset = offset
+            self.num_points = num_points
+
+        def build_points(self, chord, point_top, point_bottom):
+            raise NotImplementedError('build_points is not implemented for class %s' % type(self))
+
+        def get_path(self):
+            return self.points
+
+        def finalize_points(self, center):
+            PointManip.Transform.rotate(self.points, [0, 0, np.deg2rad(self.angle)], center)
+            self.points = prim.GeometricFunctions.close_path(
+                prim.GeometricFunctions.normalize_path_points(self.points, self.num_points))
+
+    class RectangularHole(WingHole):
+        def __init__(self, chord_start, height, width, angle, offset=0, start_angle=90, num_points=64):
+            self.height = height
+            self.width = width
+            super(WingSegment.RectangularHole, self).__init__(chord_start, angle, offset, start_angle, num_points)
+
+        def build_points(self, chord, point_top, point_bottom):
+            self.points = list()
+
+            if 0 <= self.start_angle < 180.0:
+                offset = self.offset + self.height/2.0
+                y1 = point_bottom['y'] - self.height/2.0 + offset * np.sin(np.deg2rad(self.start_angle))
+                y2 = point_bottom['y'] + self.height/2.0 + offset * np.sin(np.deg2rad(self.start_angle))
+            else:
+                offset = self.offset + self.height/2.0
+                y1 = point_top['y'] - self.height/2.0 + offset * np.sin(np.deg2rad(self.start_angle))
+                y2 = point_top['y'] + self.height/2.0 + offset * np.sin(np.deg2rad(self.start_angle))
+            x1 = chord * self.chord_start - self.width/2.0 + offset * np.cos(np.deg2rad(self.start_angle))
+            x2 = chord * self.chord_start + self.width/2.0 + offset * np.cos(np.deg2rad(self.start_angle))
+            z = point_bottom['z']
+            center = [(x2 + x1)/2.0, (y2+y1)/2.0, z]
+            self.points = [prim.Point(x1, y2, z), prim.Point(x2, y2, z), prim.Point(x2, y1, z), prim.Point(x1, y1, z),
+                           prim.Point(x1, y2, z)]
+            # plt.scatter([center[0]], [center[1]], color='C7')
+            self.finalize_points(center)
+
+    class CircleHole(WingHole):
+        def __init__(self, chord_start, radius, angle, offset=0, start_angle=90, num_points=128):
+            self.radius = radius
+            super(WingSegment.CircleHole, self).__init__(chord_start, angle, offset, start_angle, num_points)
+
+        def build_points(self, chord, point_top, point_bottom):
+            self.points = list()
+
+            offset = self.offset + self.radius
+            if 0 <= self.start_angle < 180.0:
+                y1 = point_bottom['y'] + offset * np.sin(np.deg2rad(self.start_angle))
+            else:
+                y1 = point_top['y'] + offset * np.sin(np.deg2rad(self.start_angle))
+            x1 = chord * self.chord_start + offset * np.cos(np.deg2rad(self.start_angle))
+            z = point_bottom['z']
+            center = [x1, y1, z]
+            # plt.scatter([center[0]], [center[1]], color='C7')
+            delta = 2*np.pi / (self.num_points-1)
+            for ind in range(self.num_points):
+                rad = delta * ind
+                x = center[0] + np.cos(rad) * self.radius
+                y = center[1] + np.sin(rad) * self.radius
+                self.points.append(prim.Point(x, y, z))
+            self.finalize_points(center)
+
+    class CavityHole(WingHole):
+        def __init__(self, chord_start, chord_stop, airfoil_path, thickness, angle=None, offset=None, start_angle=None,
+                     num_points=128):
+            self.chord_stop = chord_stop
+            self.thickness = thickness
+            self.airfoil_path = airfoil_path
+            super(WingSegment.CavityHole, self).__init__(chord_start, angle, offset, start_angle, num_points)
+
+        def build_points(self, chord, point_top, point_bottom):
+            airfoil_path = prim.GeometricFunctions.normalize_path_points(copy.deepcopy(self.airfoil_path), 128)
+            PointManip.Transform.scale(airfoil_path, scale=[chord, chord, 1])
+
+            self.points = prim.GeometricFunctions.clean_intersections(
+                prim.GeometricFunctions.remove_duplicate_memory_from_path(prim.GeometricFunctions.parallel_curve(
+                    airfoil_path, self.thickness, 1, False)), airfoil_path, self.thickness)
+
+            self.points = prim.GeometricFunctions.normalize_path_points(self.points,
+                                                                        num_points=int(self.num_points * 1.2))
+            if self.points[0] != self.points[-1]:
+                self.points = prim.GeometricFunctions.close_path(self.points)
+            xmin = chord * self.chord_start
+            xmax = chord * self.chord_stop
+            new_points = list()
+            for point in self.points:
+                if xmin <= point['x'] <= xmax:
+                    new_points.append(point)
+            new_points = prim.GeometricFunctions.close_path(new_points)
+            self.points = prim.GeometricFunctions.normalize_path_points(new_points, self.num_points)

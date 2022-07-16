@@ -856,6 +856,27 @@ class GeometricFunctions(object):
         return length
 
     @staticmethod
+    def get_points_with_chord_offset(path, chord_offset):
+        ret_points = list()
+        dist = list()
+        if len(path) > 2:
+            ret_points.append(path[0])
+            ret_points.append(path[1])
+            dist.append(abs(chord_offset - path[0]['x']))
+            dist.append(abs(chord_offset - path[1]['x']))
+            for ind in range(2, len(path)):
+                curr_dist = abs(chord_offset - path[ind]['x'])
+                if dist[0] > curr_dist:
+                    ret_points[1] = ret_points[0]
+                    ret_points[0] = path[ind]
+                    dist[1] = dist[0]
+                    dist[0] = curr_dist
+                elif dist[1] > curr_dist:
+                    ret_points[1] = path[ind]
+                    dist[1] = curr_dist
+        return ret_points
+
+    @staticmethod
     def get_point_along_path(path, distance, start_point=None):
         length = 0
         index = 0
@@ -900,10 +921,11 @@ class GeometricFunctions(object):
         :param path:
         :return:
         """
-        if isinstance(path, list):
-            path.append(copy.deepcopy(path[0]))
-        elif isinstance(path, np.ndarray):
-            path = np.append(path, [copy.deepcopy(path[0])])
+        if path[0] != path[-1]:
+            if isinstance(path, list):
+                path.append(copy.deepcopy(path[0]))
+            elif isinstance(path, np.ndarray):
+                path = np.append(path, [copy.deepcopy(path[0])])
         return path
 
     @staticmethod
@@ -1002,7 +1024,7 @@ class GeometricFunctions(object):
     @staticmethod
     def offset_curve(path, offset_scale, dir, divisions, add_leading_edge=True):
         logger = logging.getLogger(__name__)
-        origininal_leading_edge = copy.deepcopy(path[0])
+        original_leading_edge = copy.deepcopy(path[0])
         original_curve = copy.deepcopy(path)
         for ind in range(0, divisions):
             path = GeometricFunctions.parallel_curve(path, offset_scale / divisions, dir)
@@ -1015,8 +1037,8 @@ class GeometricFunctions(object):
         if add_leading_edge:
             intersections = GeometricFunctions.get_all_intersection_points(path)
             if dir == 0:
-                path.insert(0, origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
-                path.append(origininal_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+                path.insert(0, original_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
+                path.append(original_leading_edge + Point(-offset_scale * [1, -1][dir], 0, 0))
             else:
                 closest_point = None
                 min_dist = sys.maxsize
@@ -1081,18 +1103,28 @@ class GeometricFunctions(object):
         return offset_path
 
     @staticmethod
-    def clean_intersections(path, original_path, offset_amount):
+    def clean_intersections(path, original_path, offset_amount, debug=False):
         logger = logging.getLogger(__name__)
         cleaned_path = list()
+        deleted_ponits = list()
 
         for ind in range(0, len(path)):
             keep = True
             for ind2 in range(0, len(original_path)):
                 dist = np.sqrt((path[ind] - original_path[ind2])**2)
-                if dist < offset_amount*0.99:
+                if dist < offset_amount*0.9999999999:
                     keep = False
             if keep:
                 cleaned_path.append(path[ind])
+            else:
+                deleted_ponits.append(path[ind])
+        if debug:
+            plt.figure()
+            GeometricFunctions.plot_path(original_path, 'C18', True, 'C19')
+            GeometricFunctions.plot_path(cleaned_path, 'C20', True, 'C21')
+            GeometricFunctions.plot_path(deleted_ponits, 'C22', True, 'C23')
+            plt.legend(['Original', 'Cleaned', 'Deleted','Original_Points','Cleaned_Points', 'Deleted_Points'])
+            plt.show()
 
         return cleaned_path
 

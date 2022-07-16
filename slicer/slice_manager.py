@@ -63,13 +63,13 @@ class SliceManager(object):
         length = int(abs(bounding_box[1][used_index] - bounding_box[0][used_index]) / spacing) + 1
 
         if hollow_section_list is None:
-            hollow_section_list = [True] * length
+            hollow_section_list = [True] * (length-1)
             if not open_nose:
                 hollow_section_list[0] = False
             if not open_tail:
                 hollow_section_list[-1] = False
         else:
-            hollow_section_list_tmp = [False] * length
+            hollow_section_list_tmp = [False] * (length-1)
             for index in hollow_section_list:
                 hollow_section_list_tmp[index] = True
             hollow_section_list = hollow_section_list_tmp
@@ -77,6 +77,7 @@ class SliceManager(object):
         section_list = cut_stl.create_cross_section_pairs(wall_thickness=wall_thickness, origin_plane=slice_plane,
                                                           spacing=spacing, number_sections=length,
                                                           hollow_section_list=hollow_section_list)
+        # section_list = section_list[1:]  # todo remove
 
         serializer.encode(section_list, output_dir=os.path.join(output_dir, 'json'), file_name='cross_section_list')
 
@@ -138,8 +139,8 @@ class SliceManager(object):
             tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
             tool_path.zero_forwards_path_for_cutting()
             gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
-            gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_gcode_p%s.txt' % (name, ind + 1)),
-                                        tool_path=tool_path, wire_cutter=wire_cutter)
+            gcode.create_relative_gcode(output_dir=output_dir, name=name, tool_path=tool_path, wire_cutter=wire_cutter,
+                                        part=ind+1)
 
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=400)
@@ -155,6 +156,8 @@ class SliceManager(object):
 
         gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
 
+        output_dir = os.path.join(output_dir, wing.name)
+
         wing.prep_for_slicing(plot=True, output_dir=plot_dir)
         wing.center_to_wire_cutter(wire_cutter=wire_cutter)
         cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True,
@@ -163,7 +166,7 @@ class SliceManager(object):
                                                                output_dir=plot_dir)
         tool_path.zero_forwards_path_for_cutting()
         name = '%s_left.txt' if wing.symmetric else '%s.txt'
-        gcode.create_relative_gcode(file_path=os.path.join(output_dir, name % wing.name), tool_path=tool_path,
+        gcode.create_relative_gcode(output_dir=output_dir, name=name, tool_path=tool_path,
                                     wire_cutter=wire_cutter)
 
         if wing.symmetric:
@@ -171,7 +174,7 @@ class SliceManager(object):
             cut_path = comp.CutPath.create_cut_path_from_wing(wing, wire_cutter)
             tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
             tool_path.zero_forwards_path_for_cutting()
-            gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_right.txt' % wing.name),
+            gcode.create_relative_gcode(output_dir=output_dir, name='%s_right.txt' % wing.name,
                                         tool_path=tool_path,
                                         wire_cutter=wire_cutter)
 

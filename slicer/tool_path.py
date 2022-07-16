@@ -210,7 +210,11 @@ class ToolPath():
                 else:
                     speed_list.extend([wire_cutter.min_speed]*len(path_1_tmp))
             else:
-                num_points = 256
+                spacing = 0.8
+                length1 = prim.GeometricFunctions.path_length(cut_lst_1.get_path())
+                length2 = prim.GeometricFunctions.path_length(cut_lst_2.get_path())
+                length = max(length1, length2)
+                num_points = int(length/spacing)
                 tmp_path_1 = prim.GeometricFunctions.normalize_path_points(cut_lst_1.get_path(), num_points=num_points)
                 tmp_path_2 = prim.GeometricFunctions.normalize_path_points(cut_lst_2.get_path(), num_points=num_points)
                 num_points = min(len(tmp_path_1), len(tmp_path_2))
@@ -221,7 +225,7 @@ class ToolPath():
                 path2w.extend(tmp_path_2)
                 speed_list.extend([wire_cutter.min_speed]*num_points)
 
-        plt.figure()
+        plt.figure(figsize=(16, 9), dpi=320)
         prim.GeometricFunctions.plot_path(path1w, 'k', scatter=False)
         prim.GeometricFunctions.plot_path(path2w, 'r', scatter=False)
         if output_dir is not None:

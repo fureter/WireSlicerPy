@@ -1,12 +1,21 @@
+import copy
 import logging
 import os
-import matplotlib
-import tkinter
 
-import gui.window
-import slicer.slice_manager as sm
+import matplotlib.pyplot as plt
+
+# import gui.window
+import numpy as np
+import numpy.fft
+
 import wire_slicer
-from geometry.primative import WorkPiece
+from g_code.generator import GCodeGenerator, TravelType
+from geometry.complex import WingSegment, CutPath
+import geometry.primative as prim
+from geometry.parser import Dat
+import slicer.slice_manager as sm
+from geometry.spatial_manipulation import PointManip
+from slicer.tool_path import ToolPath
 from slicer.wire_cutter import WireCutter
 
 
@@ -15,7 +24,7 @@ def main():
     # main_window = gui.window.MainWindow('Test Gui', width=800, height=600)
     # tkinter.mainloop()
     #
-    matplotlib.use('SVG')
+    # matplotlib.use('SVG')
 
     # test_json = os.path.join(r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests', 'Nebula_V2_Fuse', 'json',
     #                          'spatial_placement_bf_cp_gen.json')
@@ -32,7 +41,7 @@ def main():
     #                                                              index='final', num_sections=cut)
     # cut_path_1, cut_path_2 = sp.create_section_links_for_cross_section_pairs(method=1)
     # sp.plot_section_order(os.path.join(r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests', 'Nebula_V2_Fuse','plots'))
-    # logger = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)
     # cut_paths = list()
     # for ind in range(sp.num_sections):
     #     cut_paths.append(CutPath(cut_path_1[ind], cut_path_2[ind]))
@@ -45,52 +54,86 @@ def main():
     #     plt.show()
     #     logger.info('Cut Paths Valid: %s', cut_path.is_valid_cut_path())
 
-
     output_dir = r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests'
     # ==================================================================================================================
-    # file_path = r'assets/Airfoils/MH60.dat'
+    # file_path = r'assets/Airfoils/clark_y.dat'
 
     # mh60_data = Dat(filepath=file_path)
     # mh60_data.plot_points_2d()
 
-    # mh60_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(mh60_data.get_data()), method=0))
+    # mh60_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(mh60_data.get_data()), method=7))
     # mh60_reord.plot_points_2d()
     # plt.show()
-    #ag35_reord.plot_points_2d()
+    # ag35_reord.plot_points_2d()
 
     # naca0009_path = Spline(mh60_reord.get_data(), resolution=4).get_path()
 
     # logger.info('Profile Name: %s' % mh60_data.name)
     #
-    # wing = WingSegment(name='MicroDeltaV3_MH60', logger=logger)
-    # wing.set_span(150)
-    # wing.set_root_chord(160)
-    # wing.set_tip_chord(110)
-    # wing.set_root_airfoil(copy.deepcopy(mh60_reord.get_data()))
-    # wing.set_tip_airfoil(copy.deepcopy(mh60_reord.get_data()))
+    # wing = WingSegment(name='dan_hole_test_feed_comp', logger=logger)
+    # wing.set_span(420)
+    # wing.set_root_chord(180)
+    # wing.set_tip_chord(180)
+    # wing.set_root_airfoil(copy.deepcopy(prim.GeometricFunctions.normalize_path_points(mh60_reord.get_data(),
+    #                                                                                   num_points=128)))
+    # wing.set_tip_airfoil(copy.deepcopy(prim.GeometricFunctions.normalize_path_points(mh60_reord.get_data(),
+    #                                                                                  num_points=128)))
     # wing.set_washout(0)
-    # wing.set_sweep(6)
+    # wing.set_sweep(0)
+    #
+    # spar_width = 2.3
+    # wing.add_hole_root(WingSegment.RectangularHole(chord_start=0.25, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=-90))
+    # wing.add_hole_root(WingSegment.RectangularHole(chord_start=0.25, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=90))
+    # wing.add_hole_tip(WingSegment.RectangularHole(chord_start=0.25, height=9.6/2, width=spar_width, offset=0, angle=0,
+    #                                               start_angle=-90))
+    # wing.add_hole_tip(
+    #     WingSegment.RectangularHole(chord_start=0.25, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=90))
+    # # #
+    # wing.add_hole_root(WingSegment.RectangularHole(chord_start=0.6, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=-90))
+    # wing.add_hole_root(WingSegment.RectangularHole(chord_start=0.6, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=90))
+    # wing.add_hole_tip(WingSegment.RectangularHole(chord_start=0.6, height=9.6/2, width=spar_width, offset=0, angle=0,
+    #                                               start_angle=-90))
+    # wing.add_hole_tip(
+    #     WingSegment.RectangularHole(chord_start=0.6, height=9.6/2, width=spar_width, offset=0, angle=0, start_angle=90))
+    # wing.add_hole_root(WingSegment.CircleHole(chord_start=0.2, radius=2.5, offset=5, angle=0, start_angle=90))
+    # wing.add_hole_tip(WingSegment.CircleHole(chord_start=0.2, radius=2.5, offset=3, angle=0, start_angle=90))
+
+    # wing.add_hole_root(
+    #     WingSegment.CavityHole(chord_start=0.35, chord_stop=0.5, airfoil_path=copy.deepcopy(mh60_reord.get_data()),
+    #                            thickness=6.5,
+    #                            num_points=254))
+    # #
+    # wing.add_hole_tip(
+    #     WingSegment.CavityHole(chord_start=0.35, chord_stop=0.5, airfoil_path=copy.deepcopy(mh60_reord.get_data()),
+    #                            thickness=6.5,
+    #                            num_points=254))
     #
     # serializer.encode(wing, output_dir, 'wing')
     # del wing
     # wing = serializer.decode(os.path.join(output_dir, 'wing.json'))
 
     wire_len = 245
-    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=150.0, min_speed=30,
+    wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=200.0, min_speed=120,
                              release_height=100.0,
-                             start_height=10.0, start_depth=20.0, name='base')
+                             start_height=6.0, start_depth=20.0, name='base', dynamic_tension=True)
     wire_cutter.set_kerf(kerf=1.0, max_kerf=1.2)
-    #
+    wire_cutter.set_dynamic_tension_motor_letter('V')
+    wire_cutter.reverse_dynamic_tension(True)
+    wire_cutter.set_dynamic_tension_feed_comp(True)
+
     wire_cutter.set_gcode_statup(g_code=['G17', 'G21'])
+
+    # sm.SliceManager.wing_to_gcode(wing, wire_cutter, output_dir)
     #
-    # wing.prep_for_slicing()
+    # wing.prep_for_slicing(plot=True)
+    # # plt.show()
     # wing.center_to_wire_cutter(wire_cutter=wire_cutter)
-    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True)
+    # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter=wire_cutter, debug_kerf=True, output_dir=output_dir)
     # tool_path = ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
     # tool_path.zero_forwards_path_for_cutting()
-    # # #
+    # # # #
     # gcode = GCodeGenerator(wire_cutter, travel_type=TravelType.CONSTANT_RATIO)
-    # gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_left.txt' % wing.name), tool_path=tool_path)
+    # gcode.create_relative_gcode(file_path=os.path.join(output_dir, '%s_hole_test.txt' % wing.name), tool_path=tool_path, wire_cutter=wire_cutter)
     # wing.flip_tip_and_root()
     # cut_path = CutPath.create_cut_path_from_wing(wing, wire_cutter)
     # tool_path = ToolPath.create_tool_path_from_cut_path(cut_path, wire_cutter=wire_cutter)
@@ -107,16 +150,20 @@ def main():
     # stl_path = os.path.join(os.path.dirname(__name__), r'./assets/STLs/Fuselage_jet.stl')
     # slice_manager.stl_to_gcode(stl_path=stl_path, name='TestJet', output_dir=output_dir, subdivisions=4, units='mm',
     #                            wall_thickness=12)
+
+
     # ==================================================================================================================
-    # work_piece = WorkPiece(width=340, height=240, thickness=18.6)
-    # # slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
-    # #
-    # stl_path = r"M:\Projects\MicroDLG\wing_left_plug.stl"
-    # # hollow_section_list = [2, 3, 4, 5, 6]
-    # sm.SliceManager.stl_to_gcode(stl_path=stl_path, name='dlg_left_wing', output_dir=output_dir, subdivisions=1,
-    #                              units='mm',
-    #                              wall_thickness=0, section_gap=3, open_nose=False, work_piece=work_piece,
-    #                              wire_cutter=wire_cutter)  # hollow_section_list=hollow_section_list)
+    work_piece = prim.WorkPiece(width=330, height=200, thickness=36.5)
+    # slice_manager = sm.SliceManager(work_piece=work_piece, wire_cutter=wire_cutter)
+    #
+    stl_path = r"M:\Projects\50mm_edf_jet\Fuse_rear.stl"
+    # hollow_section_list = [2, 3, 4, 5, 6]
+    sm.SliceManager.stl_to_gcode(stl_path=stl_path, name='50mm_edf_jet', output_dir=output_dir, subdivisions=3,
+                                 units='mm',
+                                 wall_thickness=10, section_gap=3, open_nose=True, work_piece=work_piece,
+                                 wire_cutter=wire_cutter)  # hollow_section_list=hollow_section_list)
+
+
     # ==================================================================================================================
 
     # r, c = util.util_functions.get_r_and_c_from_num(len(section_list))
