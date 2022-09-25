@@ -166,7 +166,7 @@ class SliceManager(object):
                                                                output_dir=plot_dir)
         tool_path.zero_forwards_path_for_cutting()
         name = '%s_left.txt' if wing.symmetric else '%s.txt'
-        gcode.create_relative_gcode(output_dir=output_dir, name=name, tool_path=tool_path,
+        gcode.create_relative_gcode(output_dir=output_dir, name=name % wing.name, tool_path=tool_path,
                                     wire_cutter=wire_cutter)
 
         if wing.symmetric:

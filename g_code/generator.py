@@ -115,17 +115,17 @@ class GCodeGenerator():
                     curr_speed = speed_list[ind]
                     cmd_list.append(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
                     self.logger.debug(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
-            dist = 0
-            feed_rate = 0
+
             movement = movement_list[ind]
             if wire_cutter.dynamic_tension:
 
                 # Wire length adjustments account for the change in the wire length between each gantry, plus the change
                 # in the wire length between the gantry head and the tensioning motor.
                 # TODO: Assumes the tensioning motor is mounted above the XY Gantry, replace first dY with whichever
-                #  gantry has the tensioning
+                #  gantry has the tensioning (e.g. dZ)
                 # Equation below is from taking the derivative of the wire length wrt a discrete 'interval'
-                # dL = -dY + (Lx(dX-dU) + Ly(dY-dZ))/L
+                # dL = -dY + (Lx(dX-dU) + Ly(dY-dZ))/Lc
+                # Where Lc is the separation between the gantrys (cutting length)
                 lx = posx_1 - posx_2
                 ly = posy_1 - posy_2
                 length = wire_cutter.wire_length

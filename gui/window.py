@@ -9,8 +9,10 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
+import g_code.command_library as cl
 import geometry.complex as cm
 import geometry.parser as gp
+import geometry.primative as prim
 import geometry.spatial_manipulation as spm
 import project_manager as pm
 import slicer.slice_manager as sm
@@ -26,6 +28,21 @@ class WindowState(object):
     CAD = 3
     DATABASE = 4
     RANGE = range(0, 5)
+
+
+class GeneralSettings(object):
+    LABEL_FRAME_SETTINGS = {
+        'background': PrimaryStyle.SECONDARY_COLOR,
+        'highlightbackground': PrimaryStyle.HL_BACKGROUND_COL,
+        'highlightthickness': PrimaryStyle.HL_BACKGROUND_THICKNESS,
+        'fg': PrimaryStyle.FONT_COLOR
+    }
+
+    FRAME_SETTINGS = {
+        'background': PrimaryStyle.SECONDARY_COLOR,
+        'highlightbackground': PrimaryStyle.HL_BACKGROUND_COL,
+        'highlightthickness': PrimaryStyle.HL_BACKGROUND_THICKNESS
+    }
 
 
 class ToggleButton(tk.Frame):
@@ -199,7 +216,7 @@ class ScrollableSelectionMenu(tk.Frame):
             self.items[self.curr_select].button.configure(bg=PrimaryStyle.SECONDARY_COLOR)
             self.items[self.curr_select].button.update()
             name = self.root.get_curr_name()
-            self.root.save_wing_settings()
+            self.root.save_settings()
             if name is not None:
                 self.items[self.curr_select].button.configure(text=name)
                 self.items[self.curr_select].button.update()
@@ -310,6 +327,8 @@ class MainWindow(tk.Tk):
         return self.embedded_windows[window]
 
     def switch_embedded_window(self, window_enum):
+        self.embedded_windows[self.active_window].save_settings()
+        self.active_window = window_enum
         self.embedded_windows[window_enum].tkraise()
         print('Changing Window')
         self.update()
@@ -325,7 +344,8 @@ class MainWindow(tk.Tk):
         self.save_project()
 
     def save_project(self):
-        self.embedded_windows[WindowState.WING].save_wing_settings()
+        self.embedded_windows[WindowState.WING].save_settings()
+        self.embedded_windows[WindowState.MACHINE_SETUP].save_settings()
         if self.curr_project.name in 'Default':
             output_file = filedialog.asksaveasfilename(title="Create Project", master=self, defaultextension='.proj',
                                                        filetypes=[('Project', '*.proj')])
@@ -345,6 +365,7 @@ class MainWindow(tk.Tk):
         self.title(self.window_title + ' Project: %s' % self.curr_project.name)
         self.embedded_windows[WindowState.WING].update_from_project()
         self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
+        self.embedded_windows[WindowState.MACHINE_SETUP].update_from_project()
         self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
         self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
 
@@ -383,6 +404,17 @@ class EmbeddedWindow(tk.Frame):
         super(EmbeddedWindow, self).__init__(master, background=PrimaryStyle.PRIMARY_COLOR)
         self.window_type = window_type
         self.root = root
+
+    @staticmethod
+    def manage_checkbox_color(check_box, var):
+        val = var.get()
+        if val == 1:
+            check_box.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+        else:
+            check_box.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+
+    def save_settings(self):
+        pass
 
     def update_from_project(self):
         raise NotImplementedError('update_from_project not Implemented for WindowType: %s' % self.window_type)
@@ -514,27 +546,31 @@ class MachineWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(MachineWindow, self).__init__(master, WindowState.MACHINE_SETUP, root)
 
+        self.kerf_text = None
+        self.logger = logging.getLogger(__name__)
+
         self.machines = list()
-        self.machines.append(wc.WireCutter(name='short', wire_length=245, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=80.0, start_height=10.0, start_depth=20.0,
-                                           dynamic_tension=True))
-        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
-        self.machines[-1].set_dynamic_tension_motor_letter('V')
-        self.machines[-1].reverse_dynamic_tension(True)
-
-        self.machines.append(wc.WireCutter(name='baseline', wire_length=640, max_height=300.0, max_speed=150.0,
-                                           min_speed=50, release_height=80.0, start_height=10.0, start_depth=20.0,
-                                           dynamic_tension=True))
-        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
-        self.machines[-1].set_dynamic_tension_motor_letter('V')
-        self.machines[-1].reverse_dynamic_tension(True)
-
-        self.machines.append(wc.WireCutter(name='extended', wire_length=1000, max_height=300.0, max_speed=150.0,
-                                           min_speed=30, release_height=80.0, start_height=10.0, start_depth=20.0,
-                                           dynamic_tension=True))
-        self.machines[-1].set_dynamic_tension_spool_radius(7.79)
-        self.machines[-1].set_dynamic_tension_motor_letter('V')
-        self.machines[-1].reverse_dynamic_tension(True)
+        self.curr_selected = None
+        # self.machines.append(wc.WireCutter(name='short', wire_length=245, max_height=300.0, max_depth=980,
+        #                                    max_speed=150.0, min_speed=30, release_height=80.0, start_height=10.0,
+        #                                    start_depth=20.0, dynamic_tension=True))
+        # self.machines[-1].set_dynamic_tension_motor_letter('V')
+        # self.machines[-1].reverse_dynamic_tension(True)
+        # self.machines[-1].dynamic_tension_feed_comp = True
+        #
+        # self.machines.append(wc.WireCutter(name='baseline', wire_length=640, max_height=300.0, max_depth=980,
+        #                                    max_speed=150.0, min_speed=50, release_height=80.0, start_height=10.0,
+        #                                    start_depth=20.0, dynamic_tension=True))
+        # self.machines[-1].set_dynamic_tension_motor_letter('V')
+        # self.machines[-1].reverse_dynamic_tension(True)
+        # self.machines[-1].dynamic_tension_feed_comp = True
+        #
+        # self.machines.append(wc.WireCutter(name='extended', wire_length=1000, max_height=300.0, max_depth=980,
+        #                                    max_speed=150.0, min_speed=30, release_height=80.0, start_height=10.0,
+        #                                    start_depth=20.0, dynamic_tension=True))
+        # self.machines[-1].set_dynamic_tension_motor_letter('V')
+        # self.machines[-1].reverse_dynamic_tension(True)
+        # self.machines[-1].dynamic_tension_feed_comp = True
 
         self.grid_rowconfigure(index=0, weight=100)
         self.grid_columnconfigure(index=0, weight=1)
@@ -582,8 +618,9 @@ class MachineWindow(EmbeddedWindow):
                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
 
         self.left_frame.grid(row=0, column=0, sticky=tk.NSEW)
-        self.left_frame.grid_rowconfigure(index=0, weight=2)
-        self.left_frame.grid_rowconfigure(index=1, weight=2)
+        self.left_frame.grid_rowconfigure(index=0, weight=3)
+        self.left_frame.grid_rowconfigure(index=1, weight=1)
+        self.left_frame.grid_rowconfigure(index=2, weight=2)
         self.left_frame.grid_columnconfigure(index=0, weight=1)
 
         self.top_left_frame = tk.Frame(self.left_frame, background=PrimaryStyle.SECONDARY_COLOR,
@@ -619,6 +656,7 @@ class MachineWindow(EmbeddedWindow):
         self.name_text = tk.Text(self.name_frame)
         self.name_text.pack(pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2),
                             padx=PrimaryStyle.GENERAL_PADDING / 2)
+        self.name_text.bind("<KeyRelease>", self.update_name)
 
         self.wire_frame = tk.LabelFrame(self.left_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
@@ -686,9 +724,9 @@ class MachineWindow(EmbeddedWindow):
                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.right_top_frame.grid(row=0, column=1, sticky=tk.NSEW)
-        self.right_top_frame.grid_rowconfigure(index=0, weight=2)
-        self.right_top_frame.grid_rowconfigure(index=1, weight=1)
-        self.right_top_frame.grid_rowconfigure(index=2, weight=2)
+        self.right_top_frame.grid_rowconfigure(index=0, weight=3)
+        self.right_top_frame.grid_rowconfigure(index=1, weight=2)
+        self.right_top_frame.grid_rowconfigure(index=2, weight=1)
         self.right_top_frame.grid_columnconfigure(index=0, weight=1)
 
         self.axis_def_frame = tk.LabelFrame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
@@ -766,15 +804,21 @@ class MachineWindow(EmbeddedWindow):
         self.feed_frame.grid_columnconfigure(index=1, weight=1)
         self.feed_frame.grid_propagate(False)
 
-        self.inv_time_check = tk.Checkbutton(self.feed_frame, text='Inverse Time',
+        self.inv_time_var = tk.IntVar(self)
+        self.inv_time_check = tk.Checkbutton(self.feed_frame, text='Inverse Time', onvalue=1, offvalue=0,
+                                             variable=self.inv_time_var, command=self.manage_checkbox_inv_time,
                                              background=PrimaryStyle.SECONDARY_COLOR,
+                                             selectcolor=PrimaryStyle.PRIMARY_COLOR,
                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                              fg=PrimaryStyle.FONT_COLOR)
         self.inv_time_check.grid(row=0, column=0, sticky=tk.NW)
 
-        self.upt_check = tk.Checkbutton(self.feed_frame, text='Units/Min',
+        self.upt_var = tk.IntVar(self)
+        self.upt_check = tk.Checkbutton(self.feed_frame, text='Units/Min', onvalue=1, offvalue=0,
+                                        variable=self.upt_var, command=self.manage_checkbox_upt,
                                         background=PrimaryStyle.SECONDARY_COLOR,
+                                        selectcolor=PrimaryStyle.PRIMARY_COLOR,
                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                         fg=PrimaryStyle.FONT_COLOR)
@@ -788,23 +832,83 @@ class MachineWindow(EmbeddedWindow):
         self.option_frame.grid(row=2, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 2,
                                padx=(0, PrimaryStyle.GENERAL_PADDING / 2))
         self.option_frame.grid_rowconfigure(index=0, weight=1)
-        self.option_frame.grid_rowconfigure(index=1, weight=1)
         self.option_frame.grid_columnconfigure(index=1, weight=1)
         self.option_frame.grid_propagate(False)
 
-        self.default_check = tk.Checkbutton(self.option_frame, text='Default',
+        self.default_var = tk.IntVar(self)
+        self.default_check = tk.Checkbutton(self.option_frame, text='Default', onvalue=1, offvalue=0,
+                                            variable=self.default_var, command=self.manage_checkbox_default,
                                             background=PrimaryStyle.SECONDARY_COLOR,
+                                            selectcolor=PrimaryStyle.PRIMARY_COLOR,
                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                             fg=PrimaryStyle.FONT_COLOR)
         self.default_check.grid(row=0, column=0, sticky=tk.NW)
+
+        self.dynamic_option_frame = tk.LabelFrame(self.left_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                  fg=PrimaryStyle.FONT_COLOR,
+                                                  text='Dynamic Tension')
+        self.dynamic_option_frame.grid(row=1, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 2,
+                                       padx=(PrimaryStyle.GENERAL_PADDING, PrimaryStyle.GENERAL_PADDING / 2))
+        self.dynamic_option_frame.grid_rowconfigure(index=0, weight=1)
+        self.dynamic_option_frame.grid_rowconfigure(index=1, weight=1)
+        self.dynamic_option_frame.grid_rowconfigure(index=2, weight=1)
+        self.dynamic_option_frame.grid_columnconfigure(index=0, weight=1)
+        self.dynamic_option_frame.grid_columnconfigure(index=1, weight=2)
+        self.dynamic_option_frame.grid_propagate(False)
+
+        self.dynamic_var = tk.IntVar(self)
+        self.dynamic_check = tk.Checkbutton(self.dynamic_option_frame, text='Enable', onvalue=1, offvalue=0,
+                                            variable=self.dynamic_var, command=self.manage_checkbox_dynamic,
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+        self.dynamic_check.grid(row=0, column=0, sticky=tk.NW)
+
+        self.dynamic_rev_var = tk.IntVar(self)
+        self.dynamic_rev_check = tk.Checkbutton(self.dynamic_option_frame, text='Reverse', onvalue=1, offvalue=0,
+                                                variable=self.dynamic_rev_var, command=self.manage_checkbox_dynamic_rev,
+                                                background=PrimaryStyle.SECONDARY_COLOR,
+                                                selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                fg=PrimaryStyle.FONT_COLOR)
+        self.dynamic_rev_check.grid(row=1, column=0, sticky=tk.NW)
+
+        self.dynamic_feed_comp_var = tk.IntVar(self)
+        self.dynamic_feed_comp_check = tk.Checkbutton(self.dynamic_option_frame, text='Feed Rate Comp', onvalue=1,
+                                                      offvalue=0,
+                                                      variable=self.dynamic_feed_comp_var,
+                                                      command=self.manage_checkbox_dynamic_comp,
+                                                      background=PrimaryStyle.SECONDARY_COLOR,
+                                                      selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                      fg=PrimaryStyle.FONT_COLOR)
+        self.dynamic_feed_comp_check.grid(row=2, column=0, sticky=tk.NW)
+
+        self.d1_frame = tk.LabelFrame(self.dynamic_option_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                      fg=PrimaryStyle.FONT_COLOR,
+                                      text='Motor Letter:')
+        self.d1_frame.grid(row=0, column=1, rowspan=3, sticky=tk.NSEW, pady=(0, 1),
+                           padx=(2, 1))
+        self.d1_frame.pack_propagate(False)
+        self.d1_text = tk.Text(self.d1_frame)
+        self.d1_text.insert('end', 'V')
+        self.d1_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
 
         # ==============================================================================================================
         # Bottom Frame
         self.bot_left_frame = tk.Frame(self.left_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.bot_left_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        self.bot_left_frame.grid(row=2, column=0, sticky=tk.NSEW)
         self.bot_left_frame.grid_rowconfigure(index=0, weight=1)
         self.bot_left_frame.grid_columnconfigure(index=0, weight=1)
 
@@ -836,10 +940,198 @@ class MachineWindow(EmbeddedWindow):
         self.right_frame.pack_propagate(False)
         self.right_frame.grid_propagate(False)
 
-        self.gantry_photo = tk.PhotoImage(file=os.path.join(r'assets\gui\gantries.png'), width=900, height=900)
+        self.gantry_photo = tk.PhotoImage(file=os.path.join('assets', 'gui', 'gantries.png'), width=900, height=900)
         self.gantry_photo = self.gantry_photo.subsample(2)
         self.photo_label = tk.Label(self.right_frame, image=self.gantry_photo)
         self.photo_label.grid(row=0, column=0, sticky=tk.NSEW)
+
+    def save_settings(self):
+        if self.curr_selected is not None:
+            name = self.name_text.get(1.0, "end-1c")
+
+            wire_length = get_float(self.wire_text.get(1.0, "end-1c"))
+            max_height = get_float(self.height_text.get(1.0, "end-1c"))
+            max_depth = get_float(self.depth_text.get(1.0, "end-1c"))
+            max_speed = get_float(self.fast_text.get(1.0, "end-1c"))
+            min_speed = get_float(self.slow_text.get(1.0, "end-1c"))
+            x1 = self.x1_text.get(1.0, "end-1c")
+            x2 = self.x2_text.get(1.0, "end-1c")
+            y1 = self.y1_text.get(1.0, "end-1c")
+            y2 = self.y2_text.get(1.0, "end-1c")
+            axis_def = x1 + "{:.6f} " + y1 + "{:.6f} " + x2 + "{:.6f} " + y2 + "{:.6f}"
+            startup_gcode = self.gcode_text_field.get(1.0, "end-1c")
+
+            dynamic_tension_ena = self.dynamic_var.get()
+            dynamic_tension_rev = self.dynamic_rev_var.get()
+            dynamic_tension_letter = self.d1_text.get(1.0, "end-1c")
+            dynamic_tension_feed_comp = self.dynamic_feed_comp_var.get()
+
+            inv_time_setting = self.inv_time_var.get()
+            default = self.default_var.get()
+
+            machine = self.machines[self.curr_selected]
+            machine.name = name
+            machine.wire_length = wire_length
+            machine.max_height = max_height
+            machine.max_depth = max_depth
+            machine.max_speed = max_speed
+            machine.min_speed = min_speed
+            machine.axis_def = axis_def
+            machine.start_up_gcode = startup_gcode
+            machine.dynamic_tension = True if dynamic_tension_ena == 1 else False
+            machine.dynamic_tension_reverse = True if dynamic_tension_rev == 1 else False
+            machine.dynamic_tension_feed_comp = True if dynamic_tension_feed_comp == 1 else False
+            machine.dynamic_tension_motor_letter = dynamic_tension_letter
+            machine.default = default
+
+            machine.feed_rate_mode = cl.GCodeCommands.FeedRate.INVERSE_TIME if inv_time_setting == 1 \
+                else cl.GCodeCommands.FeedRate.UNITS_PER_MINUTE
+
+    def update_from_project(self):
+        self.scroll_frame.reset()
+        self.reset()
+
+        self.machines = self.root.curr_project.machines
+
+        names = list()
+        for item in self.machines:
+            names.append(item.name)
+        self.scroll_frame.update_from_list(names)
+
+    def add_item(self):
+        self.machines.append(wc.WireCutter(name='',  wire_length=None, max_height=None, max_speed=None, min_speed=None,
+                                           max_depth=None))
+
+    def delete_item(self, index):
+        tmp = self.machines[index]
+        self.machines.remove(tmp)
+        del tmp
+
+    def update_gui(self, index):
+        # Index is only none if we are removing an entry, do not save machine settings if we are deleting
+        ret_val = None
+        if index is None:
+            self.set_visibility(False)
+        else:
+            self.save_settings()
+            self.curr_selected = index
+            self.logger.info('gui wing index: %s', index)
+            machine = self.machines[self.curr_selected]
+
+            # Clear the text fields
+            self.name_text.delete(1.0, "end")
+            self.wire_text.delete(1.0, "end")
+            self.height_text.delete(1.0, "end")
+            self.depth_text.delete(1.0, "end")
+            self.fast_text.delete(1.0, "end")
+            self.slow_text.delete(1.0, "end")
+            self.x1_text.delete(1.0, "end")
+            self.x2_text.delete(1.0, "end")
+            self.y1_text.delete(1.0, "end")
+            self.y2_text.delete(1.0, "end")
+            self.gcode_text_field.delete(1.0, "end")
+            self.d1_text.delete(1.0, "end")
+            self.default_var.set(0)
+            self.inv_time_var.set(0)
+            self.upt_var.set(0)
+            self.dynamic_var.set(0)
+            self.dynamic_feed_comp_var.set(0)
+            self.dynamic_rev_var.set(0)
+
+            if machine.name is not None:
+                self.name_text.insert(1.0, machine.name)
+                ret_val = machine.name
+            if machine.wire_length is not None:
+                self.wire_text.insert(1.0, machine.wire_length)
+            if machine.max_height is not None:
+                self.height_text.insert(1.0, machine.max_height)
+            if machine.max_depth is not None:
+                self.depth_text.insert(1.0, machine.max_depth)
+            if machine.max_speed is not None:
+                self.fast_text.insert(1.0, machine.max_speed)
+            if machine.min_speed is not None:
+                self.slow_text.insert(1.0, machine.min_speed)
+            if machine.axis_def is not None:
+                splits = machine.axis_def.split(' ')
+                x1 = splits[0][0:1]
+                x2 = splits[2][0:1]
+                y1 = splits[1][0:1]
+                y2 = splits[3][0:1]
+                self.x1_text.insert(1.0, x1)
+                self.x2_text.insert(1.0, x2)
+                self.y1_text.insert(1.0, y1)
+                self.y2_text.insert(1.0, y2)
+            if machine.start_up_gcode is not None:
+                self.gcode_text_field.insert(1.0, machine.start_up_gcode)
+            self.dynamic_var.set(1 if machine.dynamic_tension else 0)
+            self.dynamic_rev_var.set(1 if machine.dynamic_tension_reverse else 0)
+            self.dynamic_feed_comp_var.set(1 if machine.dynamic_tension_feed_comp else 0)
+            if machine.dynamic_tension_motor_letter is not None:
+                self.d1_text.insert(1.0, machine.dynamic_tension_motor_letter)
+
+            if machine.feed_rate_mode is not None:
+                if machine.feed_rate_mode == cl.GCodeCommands.FeedRate.INVERSE_TIME:
+                    self.inv_time_var.set(1)
+                else:
+                    self.upt_var.set(1)
+
+            if machine.default:
+                self.default_var.set(1)
+
+            self.manage_checkbox_inv_time()
+            self.manage_checkbox_upt()
+            self.manage_checkbox_dynamic_comp()
+            self.manage_checkbox_dynamic_rev()
+            self.manage_checkbox_dynamic()
+            self.manage_checkbox_default()
+
+        return ret_val
+
+    def get_curr_name(self):
+        ret_val = None
+
+        if self.curr_selected is not None:
+            # machine settings might not have been saved by this point, so grab the name directly out of the text box
+            # field
+            ret_val = self.name_text.get(1.0, 'end-1c')
+
+        return ret_val
+
+    def update_name(self, event):
+        self.scroll_frame.update_curr_name(name=self.name_text.get(1.0, "end-1c"))
+
+    def reset(self):
+        for machine in reversed(self.machines):
+            self.machines.remove(machine)
+            del machine
+        del self.machines
+        self.machines = list()
+        self.curr_selected = None
+        self.update_gui(self.curr_selected)
+
+    def manage_checkbox_inv_time(self):
+        self.manage_checkbox_color(self.inv_time_check, self.inv_time_var)
+        if self.inv_time_var.get() == 1:
+            self.upt_var.set(0)
+            self.manage_checkbox_upt()
+
+    def manage_checkbox_upt(self):
+        self.manage_checkbox_color(self.upt_check, self.upt_var)
+        if self.upt_var.get() == 1:
+            self.inv_time_var.set(0)
+            self.manage_checkbox_inv_time()
+
+    def manage_checkbox_default(self):
+        self.manage_checkbox_color(self.default_check, self.default_var)
+
+    def manage_checkbox_dynamic(self):
+        self.manage_checkbox_color(self.dynamic_check, self.dynamic_var)
+
+    def manage_checkbox_dynamic_rev(self):
+        self.manage_checkbox_color(self.dynamic_rev_check, self.dynamic_rev_var)
+
+    def manage_checkbox_dynamic_comp(self):
+        self.manage_checkbox_color(self.dynamic_feed_comp_check, self.dynamic_feed_comp_var)
 
 
 class WingWindow(EmbeddedWindow):
@@ -897,6 +1189,7 @@ class WingWindow(EmbeddedWindow):
         self.left_top_frame.grid_rowconfigure(index=0, weight=1)
         self.left_top_frame.grid_rowconfigure(index=1, weight=1)
         self.left_top_frame.grid_columnconfigure(index=0, weight=1)
+        self.left_top_frame.grid_propagate(False)
 
         self.top_airfoil_frame = self.AirfoilFrame(self.left_top_frame, self, position=0,
                                                    background=PrimaryStyle.SECONDARY_COLOR,
@@ -939,25 +1232,27 @@ class WingWindow(EmbeddedWindow):
                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.spar_frame.grid(row=1, column=0, sticky=tk.NSEW)
+        self.spar_frame.grid(row=1, column=0, sticky=tk.NSEW)
 
         # ==========================================================================================================
         # Slicer buttons
         self.slice_btn_frame = tk.Frame(self.right_top_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                         highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                         highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-        self.slice_btn_frame.grid(row=2, column=0, sticky=tk.NSEW)
+        self.slice_btn_frame.grid(row=2, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 4,
+                                  pady=PrimaryStyle.GENERAL_PADDING / 4)
         self.slice_btn_frame.grid_rowconfigure(index=0, weight=1)
-        self.slice_btn_frame.grid_columnconfigure(index=0, weight=1)
-        self.slice_btn_frame.grid_columnconfigure(index=1, weight=1)
+        self.slice_btn_frame.grid_columnconfigure(index=0, weight=6)
+        self.slice_btn_frame.grid_columnconfigure(index=1, weight=8)
         self.slice_btn_frame.grid_propagate(False)
 
         self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected', command=self.slice_selected)
-        self.slice_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
-                            pady=PrimaryStyle.GENERAL_PADDING / 2)
+        self.slice_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
+                            pady=PrimaryStyle.GENERAL_PADDING / 4)
 
         self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll', command=self.slice_all)
-        self.slice_all_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
-                                pady=PrimaryStyle.GENERAL_PADDING / 2)
+        self.slice_all_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=(1, PrimaryStyle.GENERAL_PADDING / 4),
+                                pady=PrimaryStyle.GENERAL_PADDING / 4)
 
     def _get_xlim_for_plotting(self):
         xmin = 0
@@ -1116,6 +1411,16 @@ class WingWindow(EmbeddedWindow):
                     data=self._transform_airfoil(self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
                 airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR)
 
+                holes = self.root.wings[self.root.curr_selected].root_holes if self.position == 0 else self.root.wings[
+                    self.root.curr_selected].tip_holes
+
+                if holes is not None:
+                    for hole in holes:
+                        airfoil_hole = gp.Dat(
+                            data=self._transform_hole(hole))
+                        airfoil_hole.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR,
+                                                        markersize=1)
+
                 xlim = self.root._get_xlim_for_plotting()
                 plot_1.set_xlim(xlim[0], xlim[1])
 
@@ -1142,6 +1447,44 @@ class WingWindow(EmbeddedWindow):
                 spm.PointManip.Transform.rotate(points, [0.0, 0.0, np.deg2rad(washout)])
 
             if sweep is not None and span is not None and self.position == 1:
+                offset = np.sin(np.deg2rad(sweep)) * span
+                spm.PointManip.Transform.translate(points, [offset, 0.0, 0.0])
+
+            return points
+
+        def _transform_hole(self, hole):
+            chord = self.chord_text_box.get(1.0, 'end-1c')
+            chord = float(chord) if is_float(chord) else 1
+
+            washout = self.root.wing_setting_frame.washout_text.get(1.0, 'end-1c')
+            washout = float(washout) if is_float(washout) else 0
+
+            sweep = self.root.wing_setting_frame.sweep_text.get(1.0, 'end-1c')
+            sweep = float(sweep) if is_float(sweep) else 0
+
+            span = self.root.wing_setting_frame.span_text.get(1.0, 'end-1c')
+            span = float(span) if is_float(span) else 1
+
+            chord_offset = hole.chord_start * chord
+            airfoil_selection = self.airfoil_option_menu.get()
+            airfoil = copy.deepcopy(self.root.main_window.curr_project.database.airfoils[airfoil_selection])
+            spm.PointManip.Transform.scale(airfoil, [chord, chord, 1])
+            point_1, point_2 = prim.GeometricFunctions.get_points_with_chord_offset(airfoil, chord_offset)
+            if point_1['y'] > point_2['y']:
+                point_top = point_1
+                point_bot = point_2
+            else:
+                point_top = point_2
+                point_bot = point_1
+            # plt.scatter([point_top['x'], point_bot['x']], [point_top['y'], point_bot['y']],color='C5')
+            hole.build_points(chord, point_top, point_bot)
+
+            points = copy.deepcopy(hole.get_path())
+
+            # spm.PointManip.Transform.scale(points, [chord, chord, 0])
+
+            if self.position == 1:
+                spm.PointManip.Transform.rotate(points, [0.0, 0.0, np.deg2rad(washout)])
                 offset = np.sin(np.deg2rad(sweep)) * span
                 spm.PointManip.Transform.translate(points, [offset, 0.0, 0.0])
 
@@ -1286,7 +1629,7 @@ class WingWindow(EmbeddedWindow):
 
         def check_align_led(self):
             # self.align_led_var.set(not self.align_led_var.get())
-            print('check align led set to: %s' % self.align_led_var.get())
+            # print('check align led set to: %s' % self.align_led_var.get())
             if self.align_led_var.get() == 1:
                 self.align_led_edge.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
             else:
@@ -1294,7 +1637,7 @@ class WingWindow(EmbeddedWindow):
 
         def check_gen_lr(self):
             # self.gen_lr_var.set(not self.gen_lr_var.get())
-            print('check gen lr set to: %s' % self.gen_lr_var.get())
+            # print('check gen lr set to: %s' % self.gen_lr_var.get())
             if self.gen_lr_var.get() == 1:
                 self.gen_left_right.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
             else:
@@ -1319,16 +1662,472 @@ class WingWindow(EmbeddedWindow):
 
             self.grid_rowconfigure(index=0, weight=1)
             self.grid_columnconfigure(index=0, weight=1)
+            self.grid_propagate(False)
 
-            self.spar_frame = tk.LabelFrame(self, text='Spars', background=PrimaryStyle.SECONDARY_COLOR,
+            self.spar_frame = tk.LabelFrame(self, text='Advanced', background=PrimaryStyle.SECONDARY_COLOR,
                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                             fg=PrimaryStyle.FONT_COLOR)
             self.spar_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                  padx=PrimaryStyle.GENERAL_PADDING / 2,
                                  pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.spar_frame.grid_rowconfigure(index=0, weight=1)
+            self.spar_frame.grid_rowconfigure(index=1, weight=9)
+            self.spar_frame.grid_columnconfigure(index=0, weight=1)
+            self.spar_frame.grid_propagate(False)
 
-    def save_wing_settings(self):
+            self.spar_addition_frame = tk.Frame(self.spar_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+            self.spar_addition_frame.grid(row=0, column=0, sticky=tk.NSEW)
+            self.spar_addition_frame.grid_rowconfigure(index=0, weight=1)
+            self.spar_addition_frame.grid_columnconfigure(index=0, weight=8)
+            self.spar_addition_frame.grid_columnconfigure(index=1, weight=1)
+            self.spar_addition_frame.grid_propagate(False)
+
+            self.selected_spar = tk.StringVar()
+            self.selected_spar.set('')
+
+            self.spar_option_menu = ttk.Combobox(self.spar_addition_frame, textvariable=self.selected_spar,
+                                                 values=[])
+            self.spar_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 4), pady=1)
+            self.spar_option_menu.grid_propagate(False)
+
+            self.add_spar_button = tk.Button(self.spar_addition_frame, text='Add Hole', command=self.add_hole)
+            self.add_spar_button.grid(row=0, column=1, sticky=tk.NSEW, padx=(1, 4), pady=1)
+            self.add_spar_button.grid_propagate(False)
+
+            self.spar_def_frame = tk.Frame(self.spar_frame, **GeneralSettings.FRAME_SETTINGS)
+            self.spar_def_frame.grid(row=1, column=0, sticky=tk.NSEW)
+            self.spar_def_frame.grid_rowconfigure(index=0, weight=1)
+            self.spar_def_frame.grid_rowconfigure(index=1, weight=69)
+            self.spar_def_frame.grid_columnconfigure(index=0, weight=1)
+            self.spar_def_frame.grid_propagate(False)
+            self.spar_def_frame.pack_propagate(False)
+
+            self.selected_spar_type = tk.StringVar()
+            self.selected_spar_type.set('Rectangle')
+
+            self.selected_spar_type = ttk.Combobox(self.spar_def_frame, textvariable=self.selected_spar_type,
+                                                   values=['Rectangle', 'Circular', 'Cavity'],)
+            self.selected_spar_type.bind('<<ComboboxSelected>>', self.select_spar_window)
+            self.selected_spar_type.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 4), pady=1)
+            self.selected_spar_type.grid_remove()
+
+            self.option_frame_rect = self.RectangleSpar(self.spar_def_frame, self)
+            self.option_frame_rect.grid(row=1, column=0, sticky=tk.NSEW)
+            self.option_frame_rect.set_visibility(False)
+            self.option_frame_circle = self.CircularSpar(self.spar_def_frame, self)
+            self.option_frame_circle.grid(row=1, column=0, sticky=tk.NSEW)
+            self.option_frame_circle.set_visibility(False)
+            self.option_frame_cavity = self.CavityHole(self.spar_def_frame, self)
+            self.option_frame_cavity.grid(row=1, column=0, sticky=tk.NSEW)
+            self.option_frame_cavity.set_visibility(False)
+
+        def update(self):
+            self.root.top_airfoil_frame.plot_airfoil('manual')
+            self.root.bot_airfoil_frame.plot_airfoil('manual')
+            if self.spar_option_menu.get() == '':
+                self.selected_spar_type.grid_remove()
+            else:
+                self.selected_spar_type.grid()
+            super(WingWindow.SparWindow, self).update()
+
+        def add_hole(self):
+            self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
+                'Hole%s' % (len(list(self.spar_option_menu['values'])) + 1)])
+
+            if self.spar_option_menu.get() == '':
+                self.spar_option_menu.set(list(self.spar_option_menu['values'])[0])
+                self.spar_option_menu.update()
+                self.selected_spar_type.grid()
+
+        def select_spar_window(self, event):
+            window_type = WingWindow.SparWindow.SparWindowTypes.from_str(self.selected_spar_type.get())
+
+            self.option_frame_rect.set_visibility(False)
+            self.option_frame_circle.set_visibility(False)
+            self.option_frame_cavity.set_visibility(False)
+            if window_type == self.SparWindowTypes.RECTANGLE:
+                self.option_frame_rect.set_visibility(True)
+            elif window_type == self.SparWindowTypes.CIRCULAR:
+                self.option_frame_circle.set_visibility(True)
+            elif window_type == self.SparWindowTypes.CAVITY:
+                self.option_frame_cavity.set_visibility(True)
+            self.update()
+
+        def delete_item(self):
+            curr_index = int(self.spar_option_menu.get()[4:])-1
+            if len(list(self.spar_option_menu['values'])) == 1:
+                self.spar_option_menu['values'] = ['']
+                self.spar_option_menu.set('')
+            else:
+                self.spar_option_menu['values'] = ['Hole%s' % i for i in
+                                                   range(1, len(list(self.spar_option_menu['values'])))]
+
+            self.root.wings[self.root.curr_selected].delete_hole(curr_index)
+            self.update()
+
+        class SparWindowTypes(object):
+            RECTANGLE = 0
+            CIRCULAR = 1
+            CAVITY = 2
+
+            @staticmethod
+            def from_str(value):
+                ret_val = None
+                if value == 'Rectangle':
+                    ret_val = WingWindow.SparWindow.SparWindowTypes.RECTANGLE
+                if value == 'Circular':
+                    ret_val = WingWindow.SparWindow.SparWindowTypes.CIRCULAR
+                if value == 'Cavity':
+                    ret_val = WingWindow.SparWindow.SparWindowTypes.CAVITY
+                return ret_val
+
+        class SparWindowSubtype(tk.Frame):
+            def __init__(self, master, root, **kwargs):
+                super(WingWindow.SparWindow.SparWindowSubtype, self).__init__(master, **kwargs)
+                self.pack_propagate(False)
+                self.root = root
+
+            def set_visibility(self, visible):
+                if visible:
+                    self.grid()
+                else:
+                    self.grid_remove()
+
+            def save_spar_to_wing(self):
+                raise NotImplementedError('Must be implemented by inherited class')
+
+            def delete_selected_spar(self):
+                self.root.selected_spar_type.set('')
+                self.root.select_spar_window('manual')
+                self.root.delete_item()
+
+        class RectangleSpar(SparWindowSubtype):
+            def __init__(self, master, root, **kwargs):
+                super(WingWindow.SparWindow.RectangleSpar, self).__init__(master, root, **kwargs)
+
+                for ind in range(4):
+                    self.grid_rowconfigure(index=ind, weight=1)
+                self.grid_columnconfigure(index=0, weight=1)
+                self.grid_columnconfigure(index=1, weight=1)
+                self.grid_columnconfigure(index=2, weight=1)
+
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.chord_start_frame.grid(row=0, column=0, columnspan=3, sticky=tk.NSEW)
+                self.chord_start_text = tk.Text(self.chord_start_frame)
+                self.chord_start_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.chord_start_frame.pack_propagate(False)
+
+                self.height_frame = tk.LabelFrame(self, text='Height(mm)', font=("Arial", 8),
+                                                  **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.height_frame.grid(row=1, column=0, columnspan=1, sticky=tk.NSEW)
+                self.height_text = tk.Text(self.height_frame)
+                self.height_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.height_frame.pack_propagate(False)
+
+                self.width_frame = tk.LabelFrame(self, text='Width(mm)', font=("Arial", 8),
+                                                 **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.width_frame.grid(row=1, column=1, columnspan=1, sticky=tk.NSEW)
+                self.width_text = tk.Text(self.width_frame)
+                self.width_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.width_frame.pack_propagate(False)
+
+                self.angle_frame = tk.LabelFrame(self, text='angle(deg)', font=("Arial", 8),
+                                                 **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.angle_frame.grid(row=1, column=2, columnspan=1, sticky=tk.NSEW)
+                self.angle_text = tk.Text(self.angle_frame)
+                self.angle_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.angle_frame.pack_propagate(False)
+
+                self.offset_frame = tk.LabelFrame(self, text='offset(mm)', font=("Arial", 8),
+                                                  **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.offset_frame.grid(row=2, column=0, columnspan=1, sticky=tk.NSEW)
+                self.offset_text = tk.Text(self.offset_frame)
+                self.offset_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.offset_frame.pack_propagate(False)
+
+                self.start_angle_frame = tk.LabelFrame(self, text='Start Angle(deg)', font=("Arial", 8),
+                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.start_angle_frame.grid(row=2, column=1, columnspan=1, sticky=tk.NSEW)
+                self.start_angle_text = tk.Text(self.start_angle_frame)
+                self.start_angle_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.start_angle_frame.pack_propagate(False)
+
+                self.num_points_frame = tk.LabelFrame(self, text='Num Points', font=("Arial", 8),
+                                                      **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.num_points_frame.grid(row=2, column=2, columnspan=1, sticky=tk.NSEW)
+                self.num_points_text = tk.Text(self.num_points_frame)
+                self.num_points_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                          padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.num_points_frame.pack_propagate(False)
+
+                self.button_frame = tk.Frame(self, **GeneralSettings.FRAME_SETTINGS)
+                self.button_frame.grid(row=3, column=0, columnspan=3, sticky=tk.NSEW)
+                self.button_frame.grid_columnconfigure(index=0, weight=1)
+                self.button_frame.grid_columnconfigure(index=1, weight=1)
+                self.button_frame.grid_rowconfigure(index=0, weight=1)
+
+                self.save = tk.Frame(self.button_frame, **GeneralSettings.FRAME_SETTINGS)
+                self.save.grid(row=0, column=0, sticky=tk.NSEW)
+                self.save.grid_columnconfigure(index=0, weight=1)
+                self.save.grid_rowconfigure(index=0, weight=1)
+                self.save.grid_propagate(False)
+
+                self.save_button = tk.Button(self.save, text='Save', command=self.save_spar_to_wing)
+                self.save_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+                self.delete = tk.Frame(self.button_frame, **GeneralSettings.FRAME_SETTINGS)
+                self.delete.grid(row=0, column=1, sticky=tk.NSEW)
+                self.delete.grid_columnconfigure(index=0, weight=1)
+                self.delete.grid_rowconfigure(index=0, weight=1)
+                self.delete.grid_propagate(False)
+                self.delete_button = tk.Button(self.delete, text='Delete', command=self.delete_selected_spar)
+                self.delete_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+            def save_spar_to_wing(self):
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                tmp_chord_start = self.chord_start_text.get("1.0", "end-1c")
+                tmp_height = self.height_text.get("1.0", "end-1c")
+                tmp_width = self.width_text.get("1.0", "end-1c")
+                tmp_angle = self.angle_text.get("1.0", "end-1c")
+                tmp_offset = self.offset_text.get("1.0", "end-1c")
+                tmp_start_angle = self.start_angle_text.get("1.0", "end-1c")
+                tmp_num_points = self.num_points_text.get("1.0", "end-1c")
+
+                try:
+                    chord_start = float(tmp_chord_start)
+                    height = float(tmp_height)
+                    width = float(tmp_width)
+                    angle = float(tmp_angle)
+                    offset = float(tmp_offset)
+                    start_angle = float(tmp_start_angle)
+                    num_points = int(tmp_num_points)
+
+                    curr_wing.add_hole_root(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
+                                                                           start_angle, num_points))
+                    curr_wing.add_hole_tip(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
+                                                                          start_angle, num_points))
+                    self.root.root.save_settings()
+                    self.root.root.top_airfoil_frame.plot_airfoil('manual')
+                    self.root.root.bot_airfoil_frame.plot_airfoil('manual')
+                except ValueError:
+                    self.root.root.logger.info('Warning: One of the Spar settings is not convertible to a number')
+
+            def delete_selected_spar(self):
+                super(WingWindow.SparWindow.RectangleSpar, self).delete_selected_spar()
+
+        class CircularSpar(SparWindowSubtype):
+            def __init__(self, master, root, **kwargs):
+                super(WingWindow.SparWindow.CircularSpar, self).__init__(master, root, **kwargs)
+
+                for ind in range(4):
+                    self.grid_rowconfigure(index=ind, weight=1)
+                self.grid_columnconfigure(index=0, weight=1)
+                self.grid_columnconfigure(index=1, weight=1)
+
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.chord_start_frame.grid(row=0, column=0, columnspan=1, sticky=tk.NSEW)
+                self.chord_start_text = tk.Text(self.chord_start_frame)
+                self.chord_start_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.chord_start_frame.pack_propagate(False)
+
+                self.radius_frame = tk.LabelFrame(self, text='Radius(mm)', font=("Arial", 8),
+                                                  **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.radius_frame.grid(row=0, column=1, columnspan=1, sticky=tk.NSEW)
+                self.radius_text = tk.Text(self.radius_frame)
+                self.radius_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.radius_frame.pack_propagate(False)
+
+                self.angle_frame = tk.LabelFrame(self, text='Angle(deg)', font=("Arial", 8),
+                                                 **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.angle_frame.grid(row=1, column=0, columnspan=1, sticky=tk.NSEW)
+                self.angle_text = tk.Text(self.angle_frame)
+                self.angle_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.angle_frame.pack_propagate(False)
+
+                self.offset_frame = tk.LabelFrame(self, text='Offset(mm)', font=("Arial", 8),
+                                                  **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.offset_frame.grid(row=1, column=1, columnspan=1, sticky=tk.NSEW)
+                self.offset_text = tk.Text(self.offset_frame)
+                self.offset_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.offset_frame.pack_propagate(False)
+
+                self.start_angle_frame = tk.LabelFrame(self, text='Start Angle(mm)', font=("Arial", 8),
+                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.start_angle_frame.grid(row=2, column=0, columnspan=1, sticky=tk.NSEW)
+                self.start_angle_text = tk.Text(self.start_angle_frame)
+                self.start_angle_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.start_angle_frame.pack_propagate(False)
+
+                self.num_points_frame = tk.LabelFrame(self, text='Num Points', font=("Arial", 8),
+                                                      **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.num_points_frame.grid(row=2, column=1, columnspan=1, sticky=tk.NSEW)
+                self.num_points_text = tk.Text(self.num_points_frame)
+                self.num_points_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                          padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.num_points_frame.pack_propagate(False)
+
+                self.save = tk.Frame(self, **GeneralSettings.FRAME_SETTINGS)
+                self.save.grid(row=3, column=0, sticky=tk.NSEW)
+                self.save.grid_columnconfigure(index=0, weight=1)
+                self.save.grid_rowconfigure(index=0, weight=1)
+                self.save.grid_propagate(False)
+
+                self.save_button = tk.Button(self.save, text='Save', command=self.save_spar_to_wing)
+                self.save_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+                self.delete = tk.Frame(self, **GeneralSettings.FRAME_SETTINGS)
+                self.delete.grid(row=3, column=1, sticky=tk.NSEW)
+                self.delete.grid_columnconfigure(index=0, weight=1)
+                self.delete.grid_rowconfigure(index=0, weight=1)
+                self.delete.grid_propagate(False)
+                self.delete_button = tk.Button(self.delete, text='Delete', command=self.delete_selected_spar)
+                self.delete_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+            def save_spar_to_wing(self):
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                tmp_chord_start = self.chord_start_text.get("1.0", "end-1c")
+                tmp_radius = self.radius_text.get("1.0", "end-1c")
+                tmp_angle = self.angle_text.get("1.0", "end-1c")
+                tmp_offset = self.offset_text.get("1.0", "end-1c")
+                tmp_start_angle = self.start_angle_text.get("1.0", "end-1c")
+                tmp_num_points = self.num_points_text.get("1.0", "end-1c")
+
+                try:
+                    chord_start = float(tmp_chord_start)
+                    radius = float(tmp_radius)
+                    angle = float(tmp_angle)
+                    offset = float(tmp_offset)
+                    start_angle = float(tmp_start_angle)
+                    num_points = int(tmp_num_points)
+
+                    curr_wing.add_hole_root(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                      start_angle, num_points))
+                    curr_wing.add_hole_tip(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                     start_angle, num_points))
+                    self.root.root.save_settings()
+                    self.root.root.top_airfoil_frame.plot_airfoil('manual')
+                    self.root.root.bot_airfoil_frame.plot_airfoil('manual')
+                except ValueError:
+                    self.root.root.logger.info('Warning: One of the Spar settings is not convertible to a number')
+
+            def delete_selected_spar(self):
+                super(WingWindow.SparWindow.CircularSpar, self).delete_selected_spar()
+
+        class CavityHole(SparWindowSubtype):
+            def __init__(self, master, root, **kwargs):
+                super(WingWindow.SparWindow.CavityHole, self).__init__(master, root, **kwargs)
+
+                for ind in range(4):
+                    self.grid_rowconfigure(index=ind, weight=1)
+                self.grid_columnconfigure(index=0, weight=1)
+                self.grid_columnconfigure(index=1, weight=1)
+
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.chord_start_frame.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+                self.chord_start_text = tk.Text(self.chord_start_frame)
+                self.chord_start_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.chord_start_frame.pack_propagate(False)
+
+                self.chord_stop_frame = tk.LabelFrame(self, text='Chord Stop(mm)', font=("Arial", 8),
+                                                      **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.chord_stop_frame.grid(row=1, column=0, columnspan=1, sticky=tk.NSEW)
+                self.chord_stop_text = tk.Text(self.chord_stop_frame)
+                self.chord_stop_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                          padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.chord_stop_frame.pack_propagate(False)
+
+                self.wall_thickness_frame = tk.LabelFrame(self, text='Wall Thickness(mm)', font=("Arial", 8),
+                                                          **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.wall_thickness_frame.grid(row=1, column=1, columnspan=1, sticky=tk.NSEW)
+                self.wall_thickness_text = tk.Text(self.wall_thickness_frame)
+                self.wall_thickness_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                              padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.wall_thickness_frame.pack_propagate(False)
+
+                self.num_points_frame = tk.LabelFrame(self, text='Num Points', font=("Arial", 8),
+                                                      **GeneralSettings.LABEL_FRAME_SETTINGS)
+                self.num_points_frame.grid(row=2, column=0, columnspan=2, sticky=tk.NSEW)
+                self.num_points_text = tk.Text(self.num_points_frame)
+                self.num_points_text.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                          padx=PrimaryStyle.GENERAL_PADDING / 8)
+                self.num_points_frame.pack_propagate(False)
+
+                self.save = tk.Frame(self, **GeneralSettings.FRAME_SETTINGS)
+                self.save.grid(row=3, column=0, sticky=tk.NSEW)
+                self.save.grid_columnconfigure(index=0, weight=1)
+                self.save.grid_rowconfigure(index=0, weight=1)
+                self.save.grid_propagate(False)
+
+                self.save_button = tk.Button(self.save, text='Save', command=self.save_spar_to_wing)
+                self.save_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+                self.delete = tk.Frame(self, **GeneralSettings.FRAME_SETTINGS)
+                self.delete.grid(row=3, column=1, sticky=tk.NSEW)
+                self.delete.grid_columnconfigure(index=0, weight=1)
+                self.delete.grid_rowconfigure(index=0, weight=1)
+                self.delete.grid_propagate(False)
+                self.delete_button = tk.Button(self.delete, text='Delete', command=self.delete_selected_spar)
+                self.delete_button.grid(row=0, column=0, sticky=tk.NSEW, pady=PrimaryStyle.GENERAL_PADDING / 8,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 8)
+
+            def save_spar_to_wing(self):
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                tmp_chord_start = self.chord_start_text.get("1.0", "end-1c")
+                tmp_chord_stop = self.chord_stop_text.get("1.0", "end-1c")
+                tmp_thickness = self.wall_thickness_text.get("1.0", "end-1c")
+                tmp_num_points = self.num_points_text.get("1.0", "end-1c")
+
+                try:  # TODO: Better error handling
+                    chord_start = float(tmp_chord_start)
+                    chord_stop = float(tmp_chord_stop)
+                    thickness = float(tmp_thickness)
+                    num_points = int(tmp_num_points)
+
+                    root_foil = self.root.root.top_airfoil_frame.airfoil_option_menu.get()
+                    root_foil = copy.deepcopy(
+                        self.root.root.root.curr_project.database.airfoils[root_foil]) if root_foil != '' else None
+                    curr_wing.add_hole_root(cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
+                                                                      num_points=num_points))
+
+                    tip_foil = self.root.root.bot_airfoil_frame.airfoil_option_menu.get()
+                    tip_foil = copy.deepcopy(
+                        self.root.root.root.curr_project.database.airfoils[tip_foil]) if tip_foil != '' else None
+                    curr_wing.add_hole_tip(cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
+                                                                     num_points=num_points))
+
+                    self.root.root.save_settings()
+                    self.root.root.top_airfoil_frame.plot_airfoil('manual')
+                    self.root.root.bot_airfoil_frame.plot_airfoil('manual')
+                except ValueError:
+                    self.root.root.logger.info('Warning: One of the Spar settings is not convertible to a number')
+
+            def delete_selected_spar(self):
+                super(WingWindow.SparWindow.CavityHole, self).delete_selected_spar()
+
+    def save_settings(self):
         if self.curr_selected is not None:
             wing = self.wings[self.curr_selected]
             wing.name = self.wing_setting_frame.name_text.get("1.0", "end-1c")
@@ -1345,16 +2144,13 @@ class WingWindow(EmbeddedWindow):
             tmp_root_kerf = self.top_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
             tmp_tip_kerf = self.bot_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
 
-            try:
-                wing.span = float(tmp_span)
-                wing.washout = float(tmp_washout)
-                wing.sweep = float(tmp_sweep)
-                wing.tip_chord = float(tmp_tip_chord)
-                wing.root_chord = float(tmp_root_chord)
-                wing.tip_kerf = float(tmp_tip_kerf)
-                wing.root_kerf = float(tmp_root_kerf)
-            except ValueError:
-                self.logger.info('Warning: One of the wing settings is not convertible to a number')
+            wing.span = get_float(tmp_span)
+            wing.washout = get_float(tmp_washout)
+            wing.sweep = get_float(tmp_sweep)
+            wing.tip_chord = get_float(tmp_tip_chord)
+            wing.root_chord = get_float(tmp_root_chord)
+            wing.tip_kerf = get_float(tmp_tip_kerf)
+            wing.root_kerf = get_float(tmp_root_kerf)
 
             wing.tip_airfoil_tag = self.bot_airfoil_frame.airfoil_option_menu.get()
             wing.root_airfoil_tag = self.top_airfoil_frame.airfoil_option_menu.get()
@@ -1370,7 +2166,6 @@ class WingWindow(EmbeddedWindow):
 
     def add_item(self):
         self.wings.append(cm.WingSegment(name='', logger=self.logger))
-        # self.curr_selected = len(self.wings)-1
 
     def delete_item(self, index):
         tmp = self.wings[index]
@@ -1383,7 +2178,7 @@ class WingWindow(EmbeddedWindow):
         if index is None:
             self.set_visibility(False)
         else:
-            self.save_wing_settings()
+            self.save_settings()
             self.curr_selected = index
             self.logger.info('gui wing index: %s', index)
             wing = self.wings[self.curr_selected]
@@ -1460,14 +2255,14 @@ class WingWindow(EmbeddedWindow):
         for wing in reversed(self.wings):
             tmp = wing
             self.wings.remove(wing)
-            del wing
+            del tmp
         del self.wings
         self.wings = list()
         self.curr_selected = None
         self.update_gui(self.curr_selected)
 
     def slice_selected(self):
-        self.save_wing_settings()
+        self.save_settings()
         wing = self.wings[self.curr_selected]
         machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
         sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
@@ -1749,3 +2544,13 @@ class DatabaseWindow(EmbeddedWindow):
 
         self.label = ttk.Label(master=self, text='Database')
         self.label.grid()
+
+
+def get_float(value):
+    ret_val = None
+    logger = logging.getLogger(__name__)
+    try:
+        ret_val = float(value)
+    except ValueError:
+        logger.debug('Could not convert %s to float' % value)
+    return ret_val

@@ -3,8 +3,8 @@ class WireCutter(object):
 
     """
 
-    def __init__(self, name, wire_length, max_height, max_speed, min_speed, release_height=None, start_height=None,
-                 start_depth=None, feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
+    def __init__(self, name, wire_length, max_height, max_depth, max_speed, min_speed, release_height=None,
+                 start_height=None, start_depth=None, feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
                  dynamic_tension=False):
         """
 
@@ -18,6 +18,7 @@ class WireCutter(object):
         self.name = name
         self.wire_length = wire_length
         self.max_height = max_height
+        self.max_depth = max_depth
         self.max_speed = max_speed
         self.min_speed = min_speed
         self.release_height = release_height
@@ -29,9 +30,9 @@ class WireCutter(object):
         self.kerf = None
         self.dynamic_tension = dynamic_tension
         self.dynamic_tension_motor_letter = None
-        self.dynamic_tension_spool_radius = None
         self.dynamic_tension_reverse = False
         self.dynamic_tension_feed_comp = False
+        self.default = False
 
     def set_gcode_statup(self, g_code):
         """Sets the initializing test_g_code for the machine.
@@ -52,9 +53,6 @@ class WireCutter(object):
 
     def set_dynamic_tension_motor_letter(self, motor_letter):
         self.dynamic_tension_motor_letter = motor_letter
-
-    def set_dynamic_tension_spool_radius(self, spool_radius):
-        self.dynamic_tension_spool_radius = spool_radius
 
     def reverse_dynamic_tension(self, reverse):
         self.dynamic_tension_reverse = reverse

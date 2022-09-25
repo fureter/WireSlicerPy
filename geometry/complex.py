@@ -549,8 +549,10 @@ class CutPath():
                 prim.GeometricFunctions.plot_path(root_foil, 1, scatter=False)
                 prim.GeometricFunctions.plot_path(tip_foil, 2, scatter=False)
 
-            root_foil = prim.GeometricFunctions.offset_curve(root_foil, kerf_root, dir=0, divisions=2)
-            tip_foil = prim.GeometricFunctions.offset_curve(tip_foil, kerf_tip, dir=0, divisions=2)
+            root_foil = prim.GeometricFunctions.offset_curve(root_foil, kerf_root, dir=0, divisions=1,
+                                                             add_leading_edge=True)
+            tip_foil = prim.GeometricFunctions.offset_curve(tip_foil, kerf_tip, dir=0, divisions=1,
+                                                            add_leading_edge=True)
 
             leading_edge_root = prim.GeometricFunctions.get_point_from_min_coord(root_foil, 'x')
             leading_edge_tip = prim.GeometricFunctions.get_point_from_min_coord(tip_foil, 'x')
@@ -1349,6 +1351,10 @@ class WingSegment(object):
         if self.tip_holes is None:
             self.tip_holes = list()
         self.tip_holes.append(hole)
+
+    def delete_hole(self, curr_index):
+        del self.root_holes[curr_index]
+        del self.tip_holes[curr_index]
 
     def align_leading_edge_with_wire(self):
         """
