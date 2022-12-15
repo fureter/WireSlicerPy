@@ -92,7 +92,7 @@ class GCodeGenerator():
         curr_speed = speed_list[0]
 
         if self._wire_cutter.start_up_gcode:
-            cmd_list.extend(self._wire_cutter.start_up_gcode)
+            cmd_list.append(self._wire_cutter.start_up_gcode)
 
         enum = command_library.GCodeCommands.PositionMode
         cmd_list.append(enum.set_positioning_mode(enum.RELATIVE))
@@ -104,7 +104,6 @@ class GCodeGenerator():
         enum = command_library.GCodeCommands.MovementCommand
 
         movement_list = tool_path.get_relative_movement_list()
-        wire_len = 0
         posx_1 = 0
         posx_2 = 0
         posy_1 = 0
@@ -117,6 +116,12 @@ class GCodeGenerator():
                     self.logger.debug(command_library.GCodeCommands.FeedRate.set_feed_rate(curr_speed))
 
             movement = movement_list[ind]
+
+            # Calculate the relative change in the wire length between the two gantries
+            posx_1 += movement[0]
+            posx_2 += movement[2]
+            posy_1 += movement[1]
+            posy_2 += movement[3]
             if wire_cutter.dynamic_tension:
 
                 # Wire length adjustments account for the change in the wire length between each gantry, plus the change
@@ -128,7 +133,7 @@ class GCodeGenerator():
                 # Where Lc is the separation between the gantrys (cutting length)
                 lx = posx_1 - posx_2
                 ly = posy_1 - posy_2
-                length = wire_cutter.wire_length
+                length = np.sqrt(wire_cutter.wire_length**2 + lx**2 + ly**2)
                 delta_wire = -movement[1] + (lx*(movement[0] - movement[2]) + ly*(movement[1]-movement[3])) / length
                 if wire_cutter.dynamic_tension_reverse:
                     delta_wire *= -1
@@ -150,12 +155,6 @@ class GCodeGenerator():
                 feed_rate = curr_speed
                 feed_comp = ''
                 dist = np.sqrt(movement[0]**2 + movement[1]**2 + movement[2]**2 + movement[3]**2)
-
-            # Calculate the relative change in the wire length between the two gantries
-            posx_1 += movement[0]
-            posx_2 += movement[2]
-            posy_1 += movement[1]
-            posy_2 += movement[3]
 
             if max(posx_2, posx_1) > max_x:
                 max_x = max(posx_2, posx_1)

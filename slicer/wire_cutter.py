@@ -3,8 +3,8 @@ class WireCutter(object):
 
     """
 
-    def __init__(self, name, wire_length, max_height, max_depth, max_speed, min_speed, release_height=None,
-                 start_height=None, start_depth=None, feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
+    def __init__(self, name, wire_length, max_height, max_depth, max_speed, min_speed,
+                 feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
                  dynamic_tension=False):
         """
 
@@ -21,9 +21,6 @@ class WireCutter(object):
         self.max_depth = max_depth
         self.max_speed = max_speed
         self.min_speed = min_speed
-        self.release_height = release_height
-        self.start_height = start_height
-        self.start_depth = start_depth
         self.feed_rate_mode = feed_rate_mode
         self.start_up_gcode = None
         self.axis_def = axis_def

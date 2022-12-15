@@ -45,6 +45,7 @@ import gui.window
 DEFAULT_AIRFOIL_PATH = r'assets/Airfoils/'
 DEFAULT_CAD_PATH = r'assets/STLs/'
 
+
 def setup(logger_level=logging.INFO):
     logger = logging.getLogger()
     formatter_console = CustomFormatter()

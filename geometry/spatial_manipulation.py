@@ -398,6 +398,12 @@ class PointManip():
             if sorted_points[1]['y'] < 0:
                 sorted_points = list(reversed(sorted_points))
 
+        # Verify the airfoil is clockwise, if not reverse the sported order to make clockwise
+        first_dir_vec = sorted_points[1] - sorted_points[0]
+        first_dir_ang = np.arctan2(first_dir_vec['y'], first_dir_vec['x'])
+        if not (0 < np.rad2deg(first_dir_ang) <= 90):
+            sorted_points = list(reversed(sorted_points))
+
         return prim.GeometricFunctions.remove_duplicate_memory_from_path(sorted_points)
 
     @staticmethod

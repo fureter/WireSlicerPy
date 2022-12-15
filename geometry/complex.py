@@ -472,13 +472,13 @@ class CutPath():
         self._cut_list_2.append(segment_2)
 
     @staticmethod
-    def _add_loopback(cut_path, wire_cutter, root_z, tip_z):
+    def _add_loopback(cut_path, wing, root_z, tip_z):
         logger = logging.getLogger(__name__)
 
-        offset = prim.Point(wire_cutter.start_depth, 0, 0)
+        offset = prim.Point(wing.start_depth, 0, 0)
         cut_path.add_section_link_from_offset(cut_1_offset=offset, cut_2_offset=offset)
 
-        offset = prim.Point(0, wire_cutter.release_height, 0)
+        offset = prim.Point(0, wing.release_height, 0)
         cut_path.add_section_link_from_offset(cut_1_offset=offset, cut_2_offset=offset)
 
         start1, start2 = cut_path.get_next_start_points()
@@ -486,8 +486,8 @@ class CutPath():
         next_point2 = prim.Point(0, start2['y'], tip_z)
         cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2, fast_cut=True)
 
-        next_point1 = prim.Point(0, wire_cutter.start_height, root_z)
-        next_point2 = prim.Point(0, wire_cutter.start_height, tip_z)
+        next_point1 = prim.Point(0, wing.start_height, root_z)
+        next_point2 = prim.Point(0, wing.start_height, tip_z)
         cut_path.add_section_link_from_abs_coord(point1=next_point1, point2=next_point2, fast_cut=True)
 
         return next_point1, next_point2
@@ -586,8 +586,8 @@ class CutPath():
 
         start_point1 = prim.Point(0, 0, root_z)
         start_point2 = prim.Point(0, 0, tip_z)
-        next_point1 = start_point1 + prim.Point(0, wire_cutter.start_height, 0)
-        next_point2 = start_point2 + prim.Point(0, wire_cutter.start_height, 0)
+        next_point1 = start_point1 + prim.Point(0, wing.start_height, 0)
+        next_point2 = start_point2 + prim.Point(0, wing.start_height, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
 
         seg_link1 = prim.SectionLink(start_point1, next_point1, fast_cut=True)
@@ -597,10 +597,11 @@ class CutPath():
 
         start_point1 = next_point1
         start_point2 = next_point2
-        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
+        next_point1 = start_point1 + prim.Point(wing.start_depth, 0, 0)
         # The start depth of the second axis needs to be offset by the difference between the two foils positioning,
         # this is to account for sweep in the wing
-        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
+
+        next_point2 = start_point2 + prim.Point(wing.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
 
         test_line = prim.Line.line_from_points(next_point1, next_point2)
@@ -608,8 +609,8 @@ class CutPath():
         p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
         # If the positioning of the leading edges of both airfoils leads to the gantrys going negative in the X or
         # U axis, then offset the cut forwards by the required amount to not go negative.
-        if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
-            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth - p2['x'])
+        if p1['x'] < wing.start_depth or p2['x'] < wing.start_depth:
+            offset = max(wing.start_depth - p1['x'], wing.start_depth - p2['x'])
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
 
@@ -698,27 +699,30 @@ class CutPath():
                 cut_path.add_segment_to_cut_lists(
                     CrossSection(prim.Path(root_foil[inds_prim[last_ind]: root_ind_split+1])),
                     CrossSection(prim.Path(tip_foil[inds_prim_tip[last_ind]: tip_ind_split+1])))
+            else:
+                last_ind = -1
+                cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(top_root)), CrossSection(prim.Path(top_tip)))
         else:
             cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(top_root)), CrossSection(prim.Path(top_tip)))
 
         start_point1 = top_root[-1]
         start_point2 = top_tip[-1]
         logger.debug('TE of Top Root: %s | TE of Top Tip: %s' % (start_point1, start_point2))
-        next_point1, next_point2 = CutPath._add_loopback(cut_path, wire_cutter, root_z,
+        next_point1, next_point2 = CutPath._add_loopback(cut_path, wing, root_z,
                                                          tip_z)
 
         start_point1 = next_point1
         start_point2 = next_point2
-        next_point1 = start_point1 + prim.Point(wire_cutter.start_depth, 0, 0)
-        next_point2 = start_point2 + prim.Point(wire_cutter.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
+        next_point1 = start_point1 + prim.Point(wing.start_depth, 0, 0)
+        next_point2 = start_point2 + prim.Point(wing.start_depth - (root_foil[0]['x'] - tip_foil[0]['x']), 0, 0)
         logger.debug('sp1: %s | sp2: %s | np1: %s | np2: %s' % (start_point1, start_point2, next_point1, next_point2))
 
         test_line = prim.Line.line_from_points(next_point1, next_point2)
         p1 = test_line.get_extrapolated_point(0, constraint_dim='z')
         p2 = test_line.get_extrapolated_point(wire_cutter.wire_length, constraint_dim='z')
 
-        if p1['x'] < wire_cutter.start_depth or p2['x'] < wire_cutter.start_depth:
-            offset = max(wire_cutter.start_depth - p1['x'], wire_cutter.start_depth - p2['x'])
+        if p1['x'] < wing.start_depth or p2['x'] < wing.start_depth:
+            offset = max(wing.start_depth - p1['x'], wing.start_depth - p2['x'])
             next_point1 += prim.Point(offset, 0, 0)
             next_point2 += prim.Point(offset, 0, 0)
 
@@ -755,7 +759,7 @@ class CutPath():
                     prim.SectionLink(hole_root[inds_hole[ind]], root_foil[inds_prim[ind]]),
                     prim.SectionLink(hole_tip[inds_hole_tip[ind]], tip_foil[inds_prim_tip[ind]]))
 
-                if root_ind_split < inds_prim[ind-1] < len(root_foil):
+                if root_ind_split < inds_prim[ind-1] < len(root_foil) and len(inds_prim) > 1:
                     cut_path.add_segment_to_cut_lists(
                         CrossSection(prim.Path(list(reversed(root_foil[inds_prim[ind-1]:inds_prim[ind]+1])))),
                         CrossSection(prim.Path(list(reversed(tip_foil[inds_prim_tip[ind-1]:inds_prim_tip[ind]+1])))))
@@ -770,7 +774,7 @@ class CutPath():
         else:
             cut_path.add_segment_to_cut_lists(CrossSection(prim.Path(bottom_root)), CrossSection(prim.Path(bottom_tip)))
 
-        CutPath._add_loopback(cut_path, wire_cutter, root_z, tip_z)
+        CutPath._add_loopback(cut_path, wing, root_z, tip_z)
 
         if output_dir is not None:
             cut_path.plot_cut_path(output_dir, False)
@@ -1209,6 +1213,10 @@ class WingSegment(object):
         self.symmetric = False
 
         self.prepped = False
+
+        self.start_height = None
+        self.start_depth = None
+        self.release_height = None
 
     def prep_for_slicing(self, plot=False, output_dir=None):
         """

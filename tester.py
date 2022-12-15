@@ -56,14 +56,17 @@ def main():
 
     output_dir = r'M:\Projects\CNCHotWireCutter\WireSlicerPy\tests'
     # ==================================================================================================================
-    # file_path = r'assets/Airfoils/clark_y.dat'
+    file_path = r'assets/Airfoils/MH60.dat'
 
-    # mh60_data = Dat(filepath=file_path)
+    mh60_data = Dat(filepath=file_path)
     # mh60_data.plot_points_2d()
 
-    # mh60_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(mh60_data.get_data()), method=7))
-    # mh60_reord.plot_points_2d()
-    # plt.show()
+    mh60_reord = Dat(data=PointManip.reorder_2d_cw(copy.deepcopy(mh60_data.get_data()), method=7))
+    mh60_reord.plot_points_2d()
+    kerf = prim.Path(prim.GeometricFunctions.parallel_curve(mh60_reord.get_data(), 0.01, 1))
+    prim.GeometricFunctions.plot_path(kerf.get_path(), 'c1')
+    plt.axis('equal')
+    plt.show()
     # ag35_reord.plot_points_2d()
 
     # naca0009_path = Spline(mh60_reord.get_data(), resolution=4).get_path()
@@ -115,7 +118,7 @@ def main():
     wire_len = 245
     wire_cutter = WireCutter(wire_length=wire_len, max_height=300.0, max_speed=200.0, min_speed=120,
                              release_height=100.0,
-                             start_height=6.0, start_depth=20.0, name='base', dynamic_tension=True)
+                             start_height=6.0, start_depth=20.0, name='base', dynamic_tension=True, max_depth=300)
     wire_cutter.set_kerf(kerf=1.0, max_kerf=1.2)
     wire_cutter.set_dynamic_tension_motor_letter('V')
     wire_cutter.reverse_dynamic_tension(True)

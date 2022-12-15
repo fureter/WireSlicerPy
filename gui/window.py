@@ -1544,12 +1544,22 @@ class WingWindow(EmbeddedWindow):
             self.span_text.bind("<FocusOut>", self.root.update_airfoil_plots)
             self.span_text.bind("<FocusIn>", self.root.update_airfoil_plots)
 
-            self.washout_label_frame = tk.LabelFrame(self.wing_field_frame, text='Washout (deg):',
+            self.wash_sweep_frame = tk.Frame(self.wing_field_frame,
+                                             background=PrimaryStyle.SECONDARY_COLOR,
+                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS, )
+            self.wash_sweep_frame.grid(row=2, column=0, sticky=tk.NSEW,
+                                       pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.wash_sweep_frame.grid_rowconfigure(index=0, weight=1)
+            self.wash_sweep_frame.grid_columnconfigure(index=0, weight=1)
+            self.wash_sweep_frame.grid_columnconfigure(index=1, weight=1)
+
+            self.washout_label_frame = tk.LabelFrame(self.wash_sweep_frame, text='Washout (deg):',
                                                      background=PrimaryStyle.SECONDARY_COLOR,
                                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                      fg=PrimaryStyle.FONT_COLOR, width=14)
-            self.washout_label_frame.grid(row=2, column=0, sticky=tk.NSEW,
+            self.washout_label_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                           padx=PrimaryStyle.GENERAL_PADDING / 2,
                                           pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
             self.washout_label_frame.pack_propagate(False)
@@ -1561,13 +1571,13 @@ class WingWindow(EmbeddedWindow):
             self.washout_text.bind("<FocusOut>", self.root.update_airfoil_plots)
             self.washout_text.bind("<FocusIn>", self.root.update_airfoil_plots)
 
-            self.sweep_label_frame = tk.LabelFrame(self.wing_field_frame, text='Sweep (deg):',
+            self.sweep_label_frame = tk.LabelFrame(self.wash_sweep_frame, text='Sweep (deg):',
                                                    background=PrimaryStyle.SECONDARY_COLOR,
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                    fg=PrimaryStyle.FONT_COLOR, width=14)
-            self.sweep_label_frame.grid(row=3, column=0, sticky=tk.NSEW,
-                                        padx=PrimaryStyle.GENERAL_PADDING / 2,
+            self.sweep_label_frame.grid(row=0, column=1, sticky=tk.NSEW,
+                                        padx=(0, PrimaryStyle.GENERAL_PADDING / 2),
                                         pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
             self.sweep_label_frame.pack_propagate(False)
 
@@ -1577,6 +1587,59 @@ class WingWindow(EmbeddedWindow):
             self.sweep_text.bind("<KeyRelease>", self.root.update_airfoil_plots)
             self.sweep_text.bind("<FocusOut>", self.root.update_airfoil_plots)
             self.sweep_text.bind("<FocusIn>", self.root.update_airfoil_plots)
+
+            self.wire_frame = tk.Frame(self.wing_field_frame,
+                                       background=PrimaryStyle.SECONDARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS, )
+            self.wire_frame.grid(row=3, column=0, sticky=tk.NSEW,
+                                 padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                 pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.wire_frame.grid_rowconfigure(index=0, weight=1)
+            self.wire_frame.grid_columnconfigure(index=0, weight=1)
+            self.wire_frame.grid_columnconfigure(index=1, weight=1)
+            self.wire_frame.grid_columnconfigure(index=2, weight=1)
+
+            self.start_height_lf = tk.LabelFrame(self.wire_frame, text='St H(mm):',
+                                                 background=PrimaryStyle.SECONDARY_COLOR,
+                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                 fg=PrimaryStyle.FONT_COLOR, width=14)
+            self.start_height_lf.grid(row=0, column=0, sticky=tk.NSEW,
+                                      pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.start_height_lf.pack_propagate(False)
+
+            self.start_height = tk.Text(self.start_height_lf)
+            self.start_height.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                   padx=(PrimaryStyle.GENERAL_PADDING / 2, 0))
+
+            self.start_depth_lf = tk.LabelFrame(self.wire_frame, text='St D(mm):',
+                                                background=PrimaryStyle.SECONDARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                fg=PrimaryStyle.FONT_COLOR, width=14)
+            self.start_depth_lf.grid(row=0, column=1, sticky=tk.NSEW,
+                                     padx=(PrimaryStyle.GENERAL_PADDING / 2, 0),
+                                     pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.start_depth_lf.pack_propagate(False)
+
+            self.start_depth = tk.Text(self.start_depth_lf)
+            self.start_depth.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                  padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.release_height_lf = tk.LabelFrame(self.wire_frame, text='Rel H(mm):',
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
+                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   fg=PrimaryStyle.FONT_COLOR, width=14)
+            self.release_height_lf.grid(row=0, column=2, sticky=tk.NSEW,
+                                        padx=(PrimaryStyle.GENERAL_PADDING / 2, 0),
+                                        pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.release_height_lf.pack_propagate(False)
+
+            self.release_height = tk.Text(self.release_height_lf)
+            self.release_height.pack(expand=True, pady=PrimaryStyle.GENERAL_PADDING / 4,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 2)
 
             self.options_frame = tk.LabelFrame(self.wing_field_frame,
                                                background=PrimaryStyle.SECONDARY_COLOR,
@@ -2042,7 +2105,7 @@ class WingWindow(EmbeddedWindow):
                 self.grid_columnconfigure(index=0, weight=1)
                 self.grid_columnconfigure(index=1, weight=1)
 
-                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(%)', font=("Arial", 8),
                                                        **GeneralSettings.LABEL_FRAME_SETTINGS)
                 self.chord_start_frame.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
                 self.chord_start_text = tk.Text(self.chord_start_frame)
@@ -2050,7 +2113,7 @@ class WingWindow(EmbeddedWindow):
                                            padx=PrimaryStyle.GENERAL_PADDING / 8)
                 self.chord_start_frame.pack_propagate(False)
 
-                self.chord_stop_frame = tk.LabelFrame(self, text='Chord Stop(mm)', font=("Arial", 8),
+                self.chord_stop_frame = tk.LabelFrame(self, text='Chord Stop(%)', font=("Arial", 8),
                                                       **GeneralSettings.LABEL_FRAME_SETTINGS)
                 self.chord_stop_frame.grid(row=1, column=0, columnspan=1, sticky=tk.NSEW)
                 self.chord_stop_text = tk.Text(self.chord_stop_frame)
@@ -2144,6 +2207,10 @@ class WingWindow(EmbeddedWindow):
             tmp_root_kerf = self.top_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
             tmp_tip_kerf = self.bot_airfoil_frame.kerf_text_box.get("1.0", "end-1c")
 
+            tmp_start_height = self.wing_setting_frame.start_height.get("1.0", "end-1c")
+            tmp_start_depth = self.wing_setting_frame.start_depth.get("1.0", "end-1c")
+            tmp_release_height = self.wing_setting_frame.release_height.get("1.0", "end-1c")
+
             wing.span = get_float(tmp_span)
             wing.washout = get_float(tmp_washout)
             wing.sweep = get_float(tmp_sweep)
@@ -2151,6 +2218,9 @@ class WingWindow(EmbeddedWindow):
             wing.root_chord = get_float(tmp_root_chord)
             wing.tip_kerf = get_float(tmp_tip_kerf)
             wing.root_kerf = get_float(tmp_root_kerf)
+            wing.start_height = get_float(tmp_start_height)
+            wing.start_depth = get_float(tmp_start_depth)
+            wing.release_height = get_float(tmp_release_height)
 
             wing.tip_airfoil_tag = self.bot_airfoil_frame.airfoil_option_menu.get()
             wing.root_airfoil_tag = self.top_airfoil_frame.airfoil_option_menu.get()
@@ -2188,6 +2258,9 @@ class WingWindow(EmbeddedWindow):
             self.wing_setting_frame.span_text.delete(1.0, "end")
             self.wing_setting_frame.washout_text.delete(1.0, "end")
             self.wing_setting_frame.sweep_text.delete(1.0, "end")
+            self.wing_setting_frame.start_height.delete(1.0, "end")
+            self.wing_setting_frame.start_depth.delete(1.0, "end")
+            self.wing_setting_frame.release_height.delete(1.0, "end")
             self.top_airfoil_frame.chord_text_box.delete(1.0, "end")
             self.bot_airfoil_frame.chord_text_box.delete(1.0, "end")
             self.top_airfoil_frame.kerf_text_box.delete(1.0, "end")
@@ -2208,6 +2281,12 @@ class WingWindow(EmbeddedWindow):
                 self.bot_airfoil_frame.chord_text_box.insert(1.0, wing.tip_chord)
                 self.top_airfoil_frame.kerf_text_box.insert(1.0, wing.root_kerf)
                 self.bot_airfoil_frame.kerf_text_box.insert(1.0, wing.tip_kerf)
+            if wing.start_height is not None:
+                self.wing_setting_frame.start_height.insert(1.0, wing.start_height)
+            if wing.start_depth is not None:
+                self.wing_setting_frame.start_depth.insert(1.0, wing.start_depth)
+            if wing.release_height is not None:
+                self.wing_setting_frame.release_height.insert(1.0, wing.release_height)
 
             align = 1 if wing.align_with_le else 0
             gen_lr = 1 if wing.symmetric else 0
