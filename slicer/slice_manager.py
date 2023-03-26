@@ -3,13 +3,12 @@ import os
 
 import matplotlib.pyplot as plt
 import numpy as np
-import trimesh.transformations
 
 import g_code.generator as gg
 import geometry.complex as comp
 import geometry.primative as prim
-import slicer.tool_path as tp
 import serializer
+import slicer.tool_path as tp
 
 
 class SliceManager(object):
@@ -62,6 +61,8 @@ class SliceManager(object):
         spacing = work_piece.thickness
         length = int(abs(bounding_box[1][used_index] - bounding_box[0][used_index]) / spacing) + 1
 
+        e_msg = 'Error: Index specified for hollow list is greater than number of cross sections'
+
         if hollow_section_list is None:
             hollow_section_list = [True] * (length-1)
             if not open_nose:
@@ -69,8 +70,9 @@ class SliceManager(object):
             if not open_tail:
                 hollow_section_list[-1] = False
         else:
-            hollow_section_list_tmp = [False] * (length-1)
+            hollow_section_list_tmp = [False] * (length - 1)
             for index in hollow_section_list:
+                assert index < len(hollow_section_list_tmp), e_msg
                 hollow_section_list_tmp[index] = True
             hollow_section_list = hollow_section_list_tmp
 

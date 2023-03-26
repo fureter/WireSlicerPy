@@ -2370,13 +2370,10 @@ class CADWindow(EmbeddedWindow):
                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.primary_frame.grid(row=0, column=1, sticky=tk.NSEW)
         self.primary_frame.grid_columnconfigure(index=0, weight=1)
-        self.primary_frame.grid_rowconfigure(index=0, weight=2)
+        self.primary_frame.grid_rowconfigure(index=0, weight=1)
         self.primary_frame.grid_rowconfigure(index=1, weight=1)
         self.primary_frame.grid_propagate(False)
         self.primary_frame.pack_propagate(False)
-
-        self.primary_frame.grid_rowconfigure(index=0, weight=1)
-        self.primary_frame.grid_columnconfigure(index=0, weight=1)
 
         self.set_visibility(False)
 
@@ -2399,9 +2396,9 @@ class CADWindow(EmbeddedWindow):
                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.top_frame.grid(row=0, column=0, sticky=tk.NSEW)
-        self.top_frame.grid_rowconfigure(index=0, weight=1)
-        self.top_frame.grid_rowconfigure(index=1, weight=4)
-        self.top_frame.grid_rowconfigure(index=2, weight=1)
+        self.top_frame.grid_rowconfigure(index=0, weight=15)
+        self.top_frame.grid_rowconfigure(index=1, weight=62)
+        self.top_frame.grid_rowconfigure(index=2, weight=16)
         self.top_frame.grid_columnconfigure(index=0, weight=1)
         self.top_frame.grid_propagate(False)
 
@@ -2484,6 +2481,20 @@ class CADWindow(EmbeddedWindow):
                                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.setting_frame.grid(row=0, column=1, sticky=tk.NSEW)
 
+        self.bot_frame = tk.Frame(self.top_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.bot_frame.grid(row=2, column=0, sticky=tk.NSEW)
+        self.bot_frame.grid_columnconfigure(index=0, weight=1)
+        self.bot_frame.grid_rowconfigure(index=0, weight=1)
+        self.bot_frame.grid_propagate(False)
+
+        self.slice_frame = CADWindow.SliceWindow(self.bot_frame, root=self,
+                                                    background=PrimaryStyle.SECONDARY_COLOR,
+                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.slice_frame.grid(row=0, column=0, sticky=tk.NSEW)
+
     def _create_bot(self):
         self.bot_frame = tk.Frame(self.primary_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
@@ -2548,6 +2559,53 @@ class CADWindow(EmbeddedWindow):
             self.workpiece_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                       padx=PrimaryStyle.GENERAL_PADDING / 2,
                                       pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.workpiece_frame.grid_columnconfigure(index=0, weight=1)
+            self.workpiece_frame.grid_rowconfigure(index=0, weight=1)
+            self.workpiece_frame.grid_rowconfigure(index=1, weight=1)
+            self.workpiece_frame.grid_rowconfigure(index=2, weight=1)
+            self.workpiece_frame.grid_propagate(False)
+
+            self.length_frame = tk.LabelFrame(self.workpiece_frame, text='Length (mm):',
+                                              background=PrimaryStyle.SECONDARY_COLOR,
+                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                              fg=PrimaryStyle.FONT_COLOR)
+            self.length_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                   padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                   pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.length_text = tk.Text(self.length_frame)
+            self.length_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                     PrimaryStyle.GENERAL_PADDING / 4),
+                                  padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.height_frame = tk.LabelFrame(self.workpiece_frame, text='Height (mm):',
+                                              background=PrimaryStyle.SECONDARY_COLOR,
+                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                              fg=PrimaryStyle.FONT_COLOR)
+            self.height_frame.grid(row=1, column=0, sticky=tk.NSEW,
+                                   padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                   pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.height_text = tk.Text(self.height_frame)
+            self.height_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                     PrimaryStyle.GENERAL_PADDING / 4),
+                                  padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.thickness_frame = tk.LabelFrame(self.workpiece_frame, text='Thickness (mm):',
+                                                 background=PrimaryStyle.SECONDARY_COLOR,
+                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                 fg=PrimaryStyle.FONT_COLOR)
+            self.thickness_frame.grid(row=2, column=0, sticky=tk.NSEW,
+                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                      pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.thickness_text = tk.Text(self.thickness_frame)
+            self.thickness_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                        PrimaryStyle.GENERAL_PADDING / 4),
+                                     padx=PrimaryStyle.GENERAL_PADDING / 2)
 
     class SettingsWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -2564,6 +2622,97 @@ class CADWindow(EmbeddedWindow):
             self.settings_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
                                      pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.settings_frame.grid_columnconfigure(index=0, weight=1)
+            self.settings_frame.grid_columnconfigure(index=1, weight=2)
+            self.settings_frame.grid_columnconfigure(index=2, weight=2)
+            self.settings_frame.grid_rowconfigure(index=0, weight=1)
+            self.settings_frame.grid_rowconfigure(index=1, weight=1)
+            self.settings_frame.grid_rowconfigure(index=2, weight=1)
+            self.settings_frame.grid_propagate(False)
+
+            self.subdivision_frame = tk.LabelFrame(self.settings_frame, text='Subdivisions:',
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
+                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   fg=PrimaryStyle.FONT_COLOR)
+            self.subdivision_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                        pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.subdivision_frame.pack_propagate(False)
+
+            self.subdivision_text = tk.Text(self.subdivision_frame)
+            self.subdivision_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                          PrimaryStyle.GENERAL_PADDING / 4),
+                                       padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.wall_thickness_frame = tk.LabelFrame(self.settings_frame, text='Wall Thickness (mm):',
+                                                      background=PrimaryStyle.SECONDARY_COLOR,
+                                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                      fg=PrimaryStyle.FONT_COLOR)
+            self.wall_thickness_frame.grid(row=1, column=0, sticky=tk.NSEW,
+                                           padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                           pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.wall_thickness_frame.pack_propagate(False)
+
+            self.wall_thickness_text = tk.Text(self.wall_thickness_frame)
+            self.wall_thickness_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                             PrimaryStyle.GENERAL_PADDING / 4),
+                                          padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.section_gap_frame = tk.LabelFrame(self.settings_frame, text='Section Gap (mm):',
+                                                   background=PrimaryStyle.SECONDARY_COLOR,
+                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                   fg=PrimaryStyle.FONT_COLOR)
+            self.section_gap_frame.grid(row=2, column=0, sticky=tk.NSEW,
+                                        padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                        pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.section_gap_frame.pack_propagate(False)
+
+            self.section_gap_text = tk.Text(self.section_gap_frame)
+            self.section_gap_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                          PrimaryStyle.GENERAL_PADDING / 4),
+                                       padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.hollow_cntrl_frame = tk.LabelFrame(self.settings_frame, text='Hollow Settings',
+                                                    background=PrimaryStyle.SECONDARY_COLOR,
+                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                    fg=PrimaryStyle.FONT_COLOR)
+            self.hollow_cntrl_frame.grid(row=0, column=1, rowspan=3, sticky=tk.NSEW,
+                                         padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                         pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.axis_cntrl_frame = tk.LabelFrame(self.settings_frame, text='Axis Control',
+                                                  background=PrimaryStyle.SECONDARY_COLOR,
+                                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                  fg=PrimaryStyle.FONT_COLOR)
+            self.axis_cntrl_frame.grid(row=0, column=2, rowspan=3, sticky=tk.NSEW,
+                                       padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                       pady=PrimaryStyle.GENERAL_PADDING / 2)
+
+    class SliceWindow(tk.Frame):
+        def __init__(self, master, root, **kwargs):
+            super(CADWindow.SliceWindow, self).__init__(master, **kwargs)
+            self.root = root
+
+            self.grid_rowconfigure(index=0, weight=1)
+            self.grid_columnconfigure(index=0, weight=1)
+
+            self.slice_frame = tk.LabelFrame(self, text='Slice Control', background=PrimaryStyle.SECONDARY_COLOR,
+                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                             fg=PrimaryStyle.FONT_COLOR)
+            self.slice_frame.grid(row=0, column=0, sticky=tk.NSEW,
+                                  padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                  pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
+            self.slice_frame.grid_columnconfigure(index=0, weight=1)
+            self.slice_frame.grid_rowconfigure(index=0, weight=1)
+            self.slice_frame.grid_rowconfigure(index=1, weight=1)
+            self.slice_frame.grid_rowconfigure(index=2, weight=1)
+            self.slice_frame.grid_propagate(False)
 
     class STLPreviewWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):

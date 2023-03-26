@@ -108,6 +108,10 @@ class GCodeGenerator():
         posx_2 = 0
         posy_1 = 0
         posy_2 = 0
+        prev_posx_1 = posx_1
+        prev_posx_2 = posx_2
+        prev_posy_1 = posy_1
+        prev_posy_2 = posy_2
         for ind in range(0, len(movement_list)):
             if len(speed_list) > 1:
                 if curr_speed != speed_list[ind]:
@@ -133,8 +137,11 @@ class GCodeGenerator():
                 # Where Lc is the separation between the gantrys (cutting length)
                 lx = posx_1 - posx_2
                 ly = posy_1 - posy_2
-                length = np.sqrt(wire_cutter.wire_length**2 + lx**2 + ly**2)
-                delta_wire = -movement[1] + (lx*(movement[0] - movement[2]) + ly*(movement[1]-movement[3])) / length
+                lx_prev = prev_posx_1 - prev_posx_2
+                ly_prev = prev_posy_1 - prev_posy_2
+                length_curr = np.sqrt(wire_cutter.wire_length**2 + lx**2 + ly**2)
+                length_prev = np.sqrt(wire_cutter.wire_length**2 + lx_prev**2 + ly_prev**2)
+                delta_wire = -movement[1] + (length_curr - length_prev)
                 if wire_cutter.dynamic_tension_reverse:
                     delta_wire *= -1
                 tension_comp = ' {motor}{dist:.6f}'.format(
@@ -169,6 +176,11 @@ class GCodeGenerator():
                 self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2],
                                                   movement[3]) + tension_comp + feed_comp))
             cut_time += (dist / feed_rate) * 60.0  # [mm] / [mm/min] * [s/min] => [s]
+
+            prev_posx_1 = posx_1
+            prev_posx_2 = posx_2
+            prev_posy_1 = posy_1
+            prev_posy_2 = posy_2
 
         self._save_info_file(info_file_path, cut_time, max_x, max_y, min_x, min_y)
         self._save_gcode_file(file_path, cmd_list)
