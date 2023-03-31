@@ -23,7 +23,8 @@
     -matplotlib
     -trimesh
     -shapely
-    -pyglet
+    -jsonpickle
+    -GitPython
 
     Optional:
     -coverage
@@ -33,6 +34,9 @@
 
 import logging
 import sys
+
+import project_manager as pm
+
 sys.coinit_flags = 0x0
 import tkinter as tk
 
@@ -100,9 +104,7 @@ class CustomFormatter(logging.Formatter):
 def setup_gui(main_window):
     # Temp fake setup to test
     main_window.embedded_windows[gui.window.WindowState.HOME].fill_recent_projects(
-        [('Nebula_V2', 1),
-         ('MicroDeltaV3', 2),
-         ('MicroNebula', 3)]
+        main_window.project_manager.get_recent_projects()
     )
 
 
@@ -110,7 +112,8 @@ if __name__ == '__main__':
     # setup logger and logger handlers
     setup()
     # Create the main window
-    main_window = gui.window.MainWindow('WireSlicerPy', 800, 600)
+    main_window = gui.window.MainWindow('WireSlicerPy', 800, 600,
+                                        project_manager=pm.ProjectManager(ini_file=r'./WireSlicerPy.json'))
     # Fake Initilize the recent projects
     setup_gui(main_window)
     # Start the tk main loop

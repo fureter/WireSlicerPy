@@ -1,10 +1,47 @@
 import os
+import json
 
 import geometry.parser as gp
 import geometry.primative as prim
 import geometry.spatial_manipulation as sm
 import wire_slicer
 import serializer
+
+
+class ProjectManager(object):
+    def __init__(self, ini_file):
+        self.ini_file = ini_file
+        self.recent_projects = dict()
+        self.ini_data = None
+        self.load_recent_projects()
+
+    def load_recent_projects(self):
+        if os.path.exists(self.ini_file):
+            with open(self.ini_file, 'rt') as json_file:
+                json_text = json_file.read()
+            self.recent_projects = json.JSONDecoder().decode(s=json_text)
+
+    def save_ini_file(self):
+        with open(self.ini_file, 'wt') as json_file:
+            json_file.write(json.JSONEncoder().encode(self.recent_projects))
+
+    def get_recent_projects(self):
+        recent_project_list = list()
+        for key, item in self.recent_projects.items():
+            recent_project_list.append((key, item))
+
+        return recent_project_list
+
+
+    def default_project(self):
+        return Project(r'./', 'Default')
+
+    def update_project_list(self, project):
+        """
+        :param Project project:
+        """
+        if project.name not in self.recent_projects.keys():
+            self.recent_projects[project.name] = project.file_path
 
 
 class Project(object):
@@ -24,9 +61,9 @@ class Project(object):
     def load_project(file_path):
         return serializer.decode(file_path)
 
-    @staticmethod
-    def default_project():
-        return Project(r'./', 'Default')
+    @property
+    def file_path(self):
+        return os.path.join(self.output_dir, '%s.proj' % self.name)
 
 
 class PartDatabase(object):

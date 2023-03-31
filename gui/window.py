@@ -4,10 +4,12 @@ import os
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.ttk as ttk
+from textwrap import dedent
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import git
 
 import g_code.command_library as cl
 import geometry.complex as cm
@@ -286,14 +288,22 @@ class PlotWindow(tk.Frame):
 
 
 class MainWindow(tk.Tk):
-    def __init__(self, title, width, height):
+    """
+    :param str title:
+    :param int width:
+    :param int height:
+    :param pm.ProjectManager project_manager:
+    """
+    def __init__(self, title, width, height, project_manager):
         super(MainWindow, self).__init__(baseName=title)
+        self.project_manager = project_manager
+
         self.width = width
         self.height = height
         self.window_title = title
         self.title(title)
 
-        self.curr_project = pm.Project.default_project()
+        self.curr_project = self.project_manager.default_project()
 
         self.geometry("%sx%s" % (self.width, self.height))
 
@@ -322,6 +332,12 @@ class MainWindow(tk.Tk):
         self.switch_embedded_window(WindowState.HOME)
 
         self.resizable(False, False)
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def on_close(self):
+        self.project_manager.save_ini_file()
+        self.exit()
 
     def get_window_instance(self, window):
         return self.embedded_windows[window]
@@ -356,6 +372,7 @@ class MainWindow(tk.Tk):
         self.curr_project.machines = self.embedded_windows[WindowState.MACHINE_SETUP].machines
         self.curr_project.cad_parts = self.embedded_windows[WindowState.CAD].cad_parts
         self.curr_project.save_project()
+        self.project_manager.update_project_list(self.curr_project)
 
     def load_project(self):
         self.update()
@@ -369,6 +386,20 @@ class MainWindow(tk.Tk):
         self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
         self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
 
+        self.project_manager.update_project_list(self.curr_project)
+
+    def load_project_from_file_path(self, file_path):
+        self.update()
+        self.curr_project = pm.Project.load_project(file_path)
+        self.title(self.window_title + ' Project: %s' % self.curr_project.name)
+        self.embedded_windows[WindowState.WING].update_from_project()
+        self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
+        self.embedded_windows[WindowState.MACHINE_SETUP].update_from_project()
+        self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
+        self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
+
+        self.project_manager.update_project_list(self.curr_project)
+
     def exit(self):
         self.destroy()
 
@@ -377,7 +408,7 @@ class MainWindow(tk.Tk):
         file_menu.add_command(label="New Project", command=self.new_project)
         file_menu.add_command(label="Save Project", command=self.save_project)
         file_menu.add_command(label="Load Project", command=self.load_project)
-        file_menu.add_command(label="Exit", command=self.exit)
+        file_menu.add_command(label="Exit", command=self.on_close)
         self.menu_bar.add_cascade(label="File", menu=file_menu)
 
         project_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -438,6 +469,8 @@ class EmbeddedWindow(tk.Frame):
 class HomeWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(HomeWindow, self).__init__(master, WindowState.HOME, root)
+
+        self.repo = git.Git(r'https://github.com/fureter/WireSlicerPy')
 
         self.grid_columnconfigure(index=0, weight=5)
         self.grid_columnconfigure(index=1, weight=1)
@@ -507,7 +540,8 @@ class HomeWindow(EmbeddedWindow):
 
         self.news_box = tk.Text(self.left_bot_frame, background=PrimaryStyle.SECONDARY_COLOR, width=0,
                                 fg=PrimaryStyle.FONT_COLOR)
-        self.news_box.insert('end', 'Version 0.01: Gui is being added, this may or may not work, Yakka Yakka Yakka')
+        log = dedent(self.repo.log()).replace("    ", "")
+        self.news_box.insert('end', log)
         self.news_box.config(wrap=tk.WORD)
         self.news_box.pack(fill=tk.BOTH, anchor=tk.NW, expand=True)
 
@@ -522,7 +556,13 @@ class HomeWindow(EmbeddedWindow):
         self.recent_projects = tk.Listbox(self.right_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                           listvariable=self.proj_var,
                                           fg=PrimaryStyle.FONT_COLOR)
+        self.recent_projects.bind('<Double-1>', self.load_recent_project)
         self.recent_projects.pack(fill=tk.BOTH, anchor=tk.CENTER, expand=True, padx=0, pady=0)
+
+    def load_recent_project(self, event):
+        ps = self.recent_projects.curselection()
+        selection = ps[0]
+        self.root.load_project_from_file_path(self.proj_ref[self.proj_list[selection]])
 
     def fill_recent_projects(self, project_reference):
         """
@@ -999,7 +1039,7 @@ class MachineWindow(EmbeddedWindow):
         self.scroll_frame.update_from_list(names)
 
     def add_item(self):
-        self.machines.append(wc.WireCutter(name='',  wire_length=None, max_height=None, max_speed=None, min_speed=None,
+        self.machines.append(wc.WireCutter(name='', wire_length=None, max_height=None, max_speed=None, min_speed=None,
                                            max_depth=None))
 
     def delete_item(self, index):
@@ -1408,7 +1448,8 @@ class WingWindow(EmbeddedWindow):
                     line.set_markeredgewidth(8)
 
                 airfoil = gp.Dat(
-                    data=self._transform_airfoil(self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
+                    data=self._transform_airfoil(
+                        self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
                 airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR)
 
                 holes = self.root.wings[self.root.curr_selected].root_holes if self.position == 0 else self.root.wings[
@@ -1772,7 +1813,7 @@ class WingWindow(EmbeddedWindow):
             self.selected_spar_type.set('Rectangle')
 
             self.selected_spar_type = ttk.Combobox(self.spar_def_frame, textvariable=self.selected_spar_type,
-                                                   values=['Rectangle', 'Circular', 'Cavity'],)
+                                                   values=['Rectangle', 'Circular', 'Cavity'], )
             self.selected_spar_type.bind('<<ComboboxSelected>>', self.select_spar_window)
             self.selected_spar_type.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 4), pady=1)
             self.selected_spar_type.grid_remove()
@@ -1820,7 +1861,7 @@ class WingWindow(EmbeddedWindow):
             self.update()
 
         def delete_item(self):
-            curr_index = int(self.spar_option_menu.get()[4:])-1
+            curr_index = int(self.spar_option_menu.get()[4:]) - 1
             if len(list(self.spar_option_menu['values'])) == 1:
                 self.spar_option_menu['values'] = ['']
                 self.spar_option_menu.set('')
@@ -1977,10 +2018,24 @@ class WingWindow(EmbeddedWindow):
                     start_angle = float(tmp_start_angle)
                     num_points = int(tmp_num_points)
 
-                    curr_wing.add_hole_root(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
-                                                                           start_angle, num_points))
-                    curr_wing.add_hole_tip(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
-                                                                          start_angle, num_points))
+                    curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+
+                    if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
+
+                        curr_wing.add_hole_root(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
+                                                                               start_angle, num_points))
+                        curr_wing.add_hole_tip(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
+                                                                              start_angle, num_points))
+                    else:
+                        curr_wing.replace_hole_root(curr_index,
+                                                    cm.WingSegment.RectangularHole(chord_start, height, width, angle,
+                                                                                   offset,
+                                                                                   start_angle, num_points))
+                        curr_wing.replace_hole_tip(curr_index,
+                                                   cm.WingSegment.RectangularHole(chord_start, height, width, angle,
+                                                                                  offset,
+                                                                                  start_angle, num_points))
+
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
                     self.root.root.bot_airfoil_frame.plot_airfoil('manual')
@@ -2083,10 +2138,19 @@ class WingWindow(EmbeddedWindow):
                     start_angle = float(tmp_start_angle)
                     num_points = int(tmp_num_points)
 
-                    curr_wing.add_hole_root(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
-                                                                      start_angle, num_points))
-                    curr_wing.add_hole_tip(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
-                                                                     start_angle, num_points))
+                    curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+
+                    if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
+
+                        curr_wing.add_hole_root(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                          start_angle, num_points))
+                        curr_wing.add_hole_tip(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                         start_angle, num_points))
+                    else:
+                        curr_wing.replace_hole_root(curr_index, cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                          start_angle, num_points))
+                        curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                         start_angle, num_points))
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
                     self.root.root.bot_airfoil_frame.plot_airfoil('manual')
@@ -2169,17 +2233,25 @@ class WingWindow(EmbeddedWindow):
                     thickness = float(tmp_thickness)
                     num_points = int(tmp_num_points)
 
+                    curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+
                     root_foil = self.root.root.top_airfoil_frame.airfoil_option_menu.get()
                     root_foil = copy.deepcopy(
                         self.root.root.root.curr_project.database.airfoils[root_foil]) if root_foil != '' else None
-                    curr_wing.add_hole_root(cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
-                                                                      num_points=num_points))
-
                     tip_foil = self.root.root.bot_airfoil_frame.airfoil_option_menu.get()
                     tip_foil = copy.deepcopy(
                         self.root.root.root.curr_project.database.airfoils[tip_foil]) if tip_foil != '' else None
-                    curr_wing.add_hole_tip(cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
-                                                                     num_points=num_points))
+
+                    if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
+                        curr_wing.add_hole_root(cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
+                                                                          num_points=num_points))
+                        curr_wing.add_hole_tip(cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
+                                                                         num_points=num_points))
+                    else:
+                        curr_wing.replace_hole_root(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
+                                                                          num_points=num_points))
+                        curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
+                                                                         num_points=num_points))
 
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
@@ -2465,7 +2537,7 @@ class CADWindow(EmbeddedWindow):
                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.mid_frame.grid(row=1, column=0, sticky=tk.NSEW)
         self.mid_frame.grid_columnconfigure(index=0, weight=1)
-        self.mid_frame.grid_columnconfigure(index=1, weight=5)
+        self.mid_frame.grid_columnconfigure(index=1, weight=3)
         self.mid_frame.grid_rowconfigure(index=0, weight=1)
         self.mid_frame.grid_propagate(False)
 
@@ -2490,9 +2562,9 @@ class CADWindow(EmbeddedWindow):
         self.bot_frame.grid_propagate(False)
 
         self.slice_frame = CADWindow.SliceWindow(self.bot_frame, root=self,
-                                                    background=PrimaryStyle.SECONDARY_COLOR,
-                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+                                                 background=PrimaryStyle.SECONDARY_COLOR,
+                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.slice_frame.grid(row=0, column=0, sticky=tk.NSEW)
 
     def _create_bot(self):
@@ -2558,7 +2630,7 @@ class CADWindow(EmbeddedWindow):
                                                  fg=PrimaryStyle.FONT_COLOR)
             self.workpiece_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                       padx=PrimaryStyle.GENERAL_PADDING / 2,
-                                      pady=PrimaryStyle.GENERAL_PADDING / 2)
+                                      pady=(PrimaryStyle.GENERAL_PADDING / 2, 0))
             self.workpiece_frame.grid_columnconfigure(index=0, weight=1)
             self.workpiece_frame.grid_rowconfigure(index=0, weight=1)
             self.workpiece_frame.grid_rowconfigure(index=1, weight=1)
@@ -2621,8 +2693,8 @@ class CADWindow(EmbeddedWindow):
                                                 fg=PrimaryStyle.FONT_COLOR)
             self.settings_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
-                                     pady=PrimaryStyle.GENERAL_PADDING / 2)
-            self.settings_frame.grid_columnconfigure(index=0, weight=1)
+                                     pady=(PrimaryStyle.GENERAL_PADDING / 2, 0))
+            self.settings_frame.grid_columnconfigure(index=0, weight=2)
             self.settings_frame.grid_columnconfigure(index=1, weight=2)
             self.settings_frame.grid_columnconfigure(index=2, weight=2)
             self.settings_frame.grid_rowconfigure(index=0, weight=1)
@@ -2701,18 +2773,67 @@ class CADWindow(EmbeddedWindow):
             self.grid_rowconfigure(index=0, weight=1)
             self.grid_columnconfigure(index=0, weight=1)
 
-            self.slice_frame = tk.LabelFrame(self, text='Slice Control', background=PrimaryStyle.SECONDARY_COLOR,
-                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
-                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
-                                             fg=PrimaryStyle.FONT_COLOR)
+            self.slice_frame = tk.Frame(self, background=PrimaryStyle.SECONDARY_COLOR,
+                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
             self.slice_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                   padx=PrimaryStyle.GENERAL_PADDING / 2,
-                                  pady=(0, PrimaryStyle.GENERAL_PADDING / 4))
-            self.slice_frame.grid_columnconfigure(index=0, weight=1)
+                                  pady=(0, 0))
             self.slice_frame.grid_rowconfigure(index=0, weight=1)
-            self.slice_frame.grid_rowconfigure(index=1, weight=1)
-            self.slice_frame.grid_rowconfigure(index=2, weight=1)
+            self.slice_frame.grid_columnconfigure(index=0, weight=1)
+            self.slice_frame.grid_columnconfigure(index=1, weight=1)
+            self.slice_frame.grid_columnconfigure(index=2, weight=1)
             self.slice_frame.grid_propagate(False)
+
+            self.sel_cnc_machine_frame = tk.LabelFrame(self.slice_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                       fg=PrimaryStyle.FONT_COLOR,
+                                                       text='Select CNC Machine:')
+            self.sel_cnc_machine_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                            pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2))
+            self.sel_cnc_machine_frame.grid_propagate(False)
+
+            self.selected_machine = tk.StringVar()
+            self.selected_machine.set('Select CNC Machine')
+
+            self.cnc_machine_option_menu = ttk.Combobox(self.sel_cnc_machine_frame, textvariable=self.selected_machine,
+                                                        values=[])
+            self.cnc_machine_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 4), pady=1)
+
+            # ==========================================================================================================
+            # Slicer buttons
+            self.slice_btn_frame = tk.Frame(self.slice_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+            self.slice_btn_frame.grid(row=0, column=2, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 4,
+                                      pady=PrimaryStyle.GENERAL_PADDING / 4)
+            self.slice_btn_frame.grid_rowconfigure(index=0, weight=1)
+            self.slice_btn_frame.grid_columnconfigure(index=0, weight=6)
+            self.slice_btn_frame.grid_columnconfigure(index=1, weight=8)
+            self.slice_btn_frame.grid_columnconfigure(index=2, weight=8)
+            self.slice_btn_frame.grid_propagate(False)
+
+            self.preview_btn = tk.Button(self.slice_btn_frame, text='Preview\nSelected', command=self.preview_selected)
+            self.preview_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
+                                  pady=PrimaryStyle.GENERAL_PADDING / 4)
+
+            self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected', command=self.slice_selected)
+            self.slice_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
+                                pady=PrimaryStyle.GENERAL_PADDING / 4)
+
+            self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll', command=self.slice_all)
+            self.slice_all_btn.grid(row=0, column=2, sticky=tk.NSEW, padx=(1, PrimaryStyle.GENERAL_PADDING / 4),
+                                    pady=PrimaryStyle.GENERAL_PADDING / 4)
+
+        def preview_selected(self):
+            pass
+
+        def slice_selected(self):
+            pass
+
+        def slice_all(self):
+            pass
 
     class STLPreviewWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):

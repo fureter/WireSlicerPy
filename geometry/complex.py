@@ -1360,6 +1360,26 @@ class WingSegment(object):
             self.tip_holes = list()
         self.tip_holes.append(hole)
 
+    def replace_hole_root(self, index, hole):
+        """
+
+        :param list[WingHole] hole: List of points that define the hole pattern to cut.
+        :return:
+        """
+        if self.root_holes is None:
+            self.root_holes = list()
+        self.root_holes[index] = hole
+
+    def replace_hole_tip(self, index, hole):
+        """
+
+        :param list[WingHole] hole: List of points that define the hole pattern to cut.
+        :return:
+        """
+        if self.tip_holes is None:
+            self.tip_holes = list()
+        self.tip_holes[index] = hole
+
     def delete_hole(self, curr_index):
         del self.root_holes[curr_index]
         del self.tip_holes[curr_index]

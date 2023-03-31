@@ -1,5 +1,6 @@
 from . import tester
 from . import wire_slicer
+from . import project_manager
 
 from . import g_code
 from . import geometry

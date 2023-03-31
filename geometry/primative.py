@@ -25,7 +25,7 @@ class Point():
     EQUAL_TOL = 1E-8
 
     def __init__(self, x, y, z):
-        self._coord = np.array([x, y, z], dtype=np.float)
+        self._coord = np.array([x, y, z], dtype=float)
 
     def __getitem__(self, item):
         if isinstance(item, str):
