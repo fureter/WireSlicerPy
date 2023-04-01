@@ -153,17 +153,56 @@ class CrossSectionPair(object):
             plt.plot([center['x'], center['x'] + np.cos(np.deg2rad(upper_range)) * radius],
                      [center['y'], center['y'] + np.sin(np.deg2rad(upper_range)) * radius])
 
-    def plot_gui(self, plot1, font_color, scatter_color1, scatter_color2):
+    def plot_gui(self, font_color, scatter_color1, scatter_color2):
         def plot(plot1):
-            size = len(self._data)
+            CULL_FACTOR=32
+            path = self.get_path()
+            size = len(path[0])
+            size2 = len(path[1])
             x = np.zeros(size)
+            x2 = np.zeros(size2)
             y = np.zeros(size)
+            y2 = np.zeros(size2)
 
             for i in range(0, size):
-                x[i] = self._data[i]['x']
-                y[i] = self._data[i]['y']
+                x[i] = path[0][i]['x']
+                y[i] = path[0][i]['y']
+            for i in range(0, size2):
+                x2[i] = path[1][i]['x']
+                y2[i] = path[1][i]['y']
+
+            n = int(size/CULL_FACTOR)
+            m = int(size2/CULL_FACTOR)
             plot1.plot(x, y, font_color)
-            plot1.plot(x, y, 'v', markersize=3, color=scatter_color1)
+            plot1.plot(x2, y2, font_color)
+            plot1.plot(x[::n], y[::n], 'v', markersize=3, color=scatter_color1)
+            plot1.plot(x2[::m], y2[::m], 'v', markersize=3, color=scatter_color2)
+
+            if self.section1.holes is not None:
+                holes = self.get_path_hole()
+                num_holes = len(holes[0])
+                for ind in range(num_holes):
+                    hole1 = holes[0][ind]
+                    hole2 = holes[1][ind]
+                    size = len(hole1)
+                    size2 = len(hole2)
+                    n = int(size / CULL_FACTOR)
+                    m = int(size2 / CULL_FACTOR)
+                    x = np.zeros(size)
+                    x2 = np.zeros(size2)
+                    y = np.zeros(size)
+                    y2 = np.zeros(size2)
+                    for i in range(0, size):
+                        x[i] = hole1[i]['x']
+                        y[i] = hole1[i]['y']
+                    for i in range(0, size2):
+                        x2[i] = hole2[i]['x']
+                        y2[i] = hole2[i]['y']
+                    plot1.plot(x, y, font_color)
+                    plot1.plot(x2, y2, font_color)
+                    plot1.plot(x[::n], y[::n], 'v', markersize=3, color=scatter_color1)
+                    plot1.plot(x2[::m], y2[::m], 'v', markersize=3, color=scatter_color2)
+
             plot1.axis('equal')
 
         return plot
@@ -196,6 +235,9 @@ class CrossSectionPair(object):
 
     def get_path(self):
         return self.section1.get_path(), self.section2.get_path()
+
+    def get_path_hole(self):
+        return self.section1.get_path_hole(), self.section2.get_path_hole()
 
 
 class CrossSection(object):
@@ -329,15 +371,28 @@ class CrossSection(object):
     def plot_gui(self, font_color, scatter_color1, scatter_color2):
 
         def plot(plot1):
-            size = len(self._data)
+            path = self.get_path()
+            size = len(path)
             x = np.zeros(size)
             y = np.zeros(size)
 
             for i in range(0, size):
-                x[i] = self._data[i]['x']
-                y[i] = self._data[i]['y']
+                x[i] = path[i]['x']
+                y[i] = path[i]['y']
             plot1.plot(x, y, font_color)
             plot1.plot(x, y, 'v', markersize=3, color=scatter_color1)
+
+            if self.holes is not None:
+                for hole in self.get_path_hole():
+                    size = len(hole)
+                    x = np.zeros(size)
+                    y = np.zeros(size)
+                    for i in range(0, size):
+                        x[i] = hole[i]['x']
+                        y[i] = hole[i]['y']
+                    plot1.plot(x, y, font_color)
+                    plot1.plot(x, y, 'v', markersize=3, color=scatter_color1)
+
             plot1.axis('equal')
 
         return plot

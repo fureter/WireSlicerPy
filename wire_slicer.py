@@ -6,7 +6,7 @@
     printable templates.
 
     Functions:
-    1. Parse DXF and various ascii formats to read and export spline data to represent cross sections
+    1. Parse DXF and various ascii formats to read and export spline data to represent cross-sections
     2. Manipulate closed splines:
         -Break closed shapes into sub areas
         -Offset splines to create hollow shapes
@@ -25,6 +25,7 @@
     -shapely
     -jsonpickle
     -GitPython
+    -networkx
 
     Optional:
     -coverage
@@ -112,7 +113,7 @@ if __name__ == '__main__':
     # setup logger and logger handlers
     setup()
     # Create the main window
-    main_window = gui.window.MainWindow('WireSlicerPy', 800, 600,
+    main_window = gui.window.MainWindow('WireSlicerPy', 800, 610,
                                         project_manager=pm.ProjectManager(ini_file=r'./WireSlicerPy.json'))
     # Fake Initilize the recent projects
     setup_gui(main_window)

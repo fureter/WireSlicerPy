@@ -25,6 +25,7 @@ class WireCutter(object):
         self.start_up_gcode = None
         self.axis_def = axis_def
         self.kerf = None
+        self.max_kerf = None
         self.dynamic_tension = dynamic_tension
         self.dynamic_tension_motor_letter = None
         self.dynamic_tension_reverse = False

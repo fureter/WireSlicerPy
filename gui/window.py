@@ -5,6 +5,7 @@ import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.ttk as ttk
 from textwrap import dedent
+import threading
 
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -22,6 +23,29 @@ import slicer.wire_cutter as wc
 from util.util_functions import is_float
 from .styles import PrimaryStyle
 
+
+class ProcessThread(threading.Thread):
+    def __init__(self, **kwargs):
+        super(ProcessThread, self).__init__(**kwargs)
+
+    def run(self):
+        """Method representing the thread's activity.
+
+        You may override this method in a subclass. The standard run() method
+        invokes the callable object passed to the object's constructor as the
+        target argument, if any, with sequential and keyword arguments taken
+        from the args and kwargs arguments, respectively.
+
+        """
+        ret_val = None
+        try:
+            if self._target is not None:
+                ret_val = self._target(*self._args, **self._kwargs)
+        finally:
+            # Avoid a refcycle if the thread is running a function with
+            # an argument that has a member that points to the thread.
+            del self._target, self._args, self._kwargs
+        return ret_val
 
 class WindowState(object):
     HOME = 0
@@ -245,11 +269,12 @@ class ScrollableSelectionMenu(tk.Frame):
 
 
 class PlotWindow(tk.Frame):
-    def __init__(self, master, root, **kwargs):
-        super(PlotWindow, self).__init__(master, **kwargs)
+    def __init__(self, master, root, width, height, **kwargs):
+        super(PlotWindow, self).__init__(master, width=width, height=height, **kwargs)
         self.root = root
 
         self.pack_propagate(False)
+        self.grid_propagate(False)
 
         self.draw_figure = Figure(figsize=(4, 4), dpi=100)
         self.draw_figure.set_facecolor(PrimaryStyle.SECONDARY_COLOR)
@@ -298,6 +323,8 @@ class MainWindow(tk.Tk):
         super(MainWindow, self).__init__(baseName=title)
         self.project_manager = project_manager
 
+        self.logger = logging.getLogger(__name__)
+
         self.width = width
         self.height = height
         self.window_title = title
@@ -308,10 +335,13 @@ class MainWindow(tk.Tk):
         self.geometry("%sx%s" % (self.width, self.height))
 
         self.active_window = WindowState.HOME
+        self.grid_rowconfigure(index=0, weight=600)
+        self.grid_rowconfigure(index=1, weight=10)
+        self.grid_columnconfigure(index=0, weight=1)
 
         self.primary_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR)
-        # self.primary_frame.grid_configure(column=1, row=1)
-        self.primary_frame.pack(side='top', fill='both', expand=True)
+        self.primary_frame.grid_configure(column=0, row=0, sticky=tk.NSEW)
+        # self.primary_frame.pack(side='top', fill='both', expand=True)
         self.primary_frame.grid_columnconfigure(0, weight=1)
         self.primary_frame.grid_rowconfigure(0, weight=1)
 
@@ -328,6 +358,12 @@ class MainWindow(tk.Tk):
 
         self.menu_bar = tk.Menu(self)
         self._create_menu_bar()
+        s = ttk.Style()
+        s.theme_use('clam')
+        s.configure('Horizontal.TProgressbar', foreground=PrimaryStyle.TETRARY_COLOR,
+                    background=PrimaryStyle.TETRARY_COLOR)
+        self.progress_bar = ttk.Progressbar(self, orient='horizontal', mode='indeterminate', length=width-5)
+        self.progress_bar.grid(row=1, column=0, sticky=tk.NSEW)
 
         self.switch_embedded_window(WindowState.HOME)
 
@@ -2827,7 +2863,25 @@ class CADWindow(EmbeddedWindow):
                                     pady=PrimaryStyle.GENERAL_PADDING / 4)
 
         def preview_selected(self):
-            pass
+            tmp_wire_cutter = wc.WireCutter(name='tmp', wire_length=245, max_height=300, max_depth=600,
+                                            max_speed=120, min_speed=50,
+                 feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
+                 dynamic_tension=False)
+            self.root.root.progress_bar.start()
+            thread = ProcessThread(target=sm.SliceManager.stl_precondition,
+                                   kwargs={'stl_path': r'./assets/STLs/Fuselage_NebulaV2.stl',
+                                           'logger': self.root.root.logger, 'units': 'mm',
+                                           'output_dir': r'./assets/GCode',
+                                           'work_piece': prim.WorkPiece(300, 200, 35),
+                                           'hollow_section_list': None, 'open_nose': False,
+                                           'open_tail': True, 'wall_thickness':10, 'name':'Nebula', 'subdivisions':3,
+                                           'wire_cutter':tmp_wire_cutter, 'flip_axis':False})
+
+            cross_section_list = thread.run()
+            self.root.stl_prev_window_label_frame.configure(text='Slice Preview: %s Sections' % len(cross_section_list))
+            self.root.stl_prev_window_label_frame.update()
+            self.root.stl_prev_window.add_plots(cross_section_list)
+            self.root.root.progress_bar.stop()
 
         def slice_selected(self):
             pass
@@ -2844,12 +2898,14 @@ class CADWindow(EmbeddedWindow):
 
             self.grid_rowconfigure(index=0, weight=1)
             self.grid_columnconfigure(index=0, weight=1)
+            self.grid_propagate(False)
+            self.pack_propagate(False)
 
             self.canvas_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.canvas_frame.grid(row=0, column=0, sticky=tk.NSEW, columnspan=2)
-            self.canvas_frame.grid_rowconfigure(index=0, weight=29)
+            self.canvas_frame.grid(row=0, column=0, sticky=tk.NSEW,)
+            self.canvas_frame.grid_rowconfigure(index=0, weight=59)
             self.canvas_frame.grid_rowconfigure(index=1, weight=1)
             self.canvas_frame.grid_columnconfigure(index=0, weight=1)
             self.canvas_frame.grid_propagate(False)
@@ -2863,28 +2919,66 @@ class CADWindow(EmbeddedWindow):
 
             self.scroll_window = tk.Frame(self.primary_canvas,
                                           background=PrimaryStyle.PRIMARY_COLOR)
+            self.primary_canvas.update()
+            self.block_size = self.primary_canvas.winfo_reqheight()
+            self.primary_canvas.create_window(0, self.block_size/2, window=self.scroll_window, anchor=tk.W)
 
-            self.primary_canvas.create_window(0, 0, window=self.scroll_window, anchor=tk.NW)
-
-            self.h_scroll_bar = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL, command=self.primary_canvas.yview,
-                                             bg=PrimaryStyle.PRIMARY_COLOR)
+            self.h_scroll_bar = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL, command=self.primary_canvas.xview,
+                                             bg=PrimaryStyle.PRIMARY_COLOR, width=11)
             self.h_scroll_bar.grid(row=1, column=0, sticky=tk.NSEW)
             self.h_scroll_bar.lift(self.scroll_window)
 
-            self.primary_canvas.config(yscrollcommand=self.h_scroll_bar.set,
+            self.primary_canvas.config(xscrollcommand=self.h_scroll_bar.set,
                                        scrollregion=self.primary_canvas.bbox("all"))
 
+            self.scroll_window.bind('<Configure>', self._configure_window)
+            self.scroll_window.bind('<Enter>', self._bound_to_mousewheel)
+            self.scroll_window.bind('<Leave>', self._unbound_to_mousewheel)
+
+        def _bound_to_mousewheel(self, event):
+            self.primary_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+        def _unbound_to_mousewheel(self, event):
+            self.primary_canvas.unbind_all("<MouseWheel>")
+
+        def _on_mousewheel(self, event):
+            self.primary_canvas.xview_scroll(int(-1 * (event.delta / 120.0)), "units")
+
+        def _configure_window(self, event):
+            # update the scrollbars to match the size of the inner frame
+            size = (self.scroll_window.winfo_reqwidth(), self.scroll_window.winfo_reqheight())
+            self.primary_canvas.config(scrollregion='0 0 %s %s' % size)
+            if self.scroll_window.winfo_reqwidth() != self.primary_canvas.winfo_width():
+                # update the canvas's width to fit the inner frame
+                self.primary_canvas.config(width=self.scroll_window.winfo_reqwidth())
+            if self.scroll_window.winfo_reqheight() != self.primary_canvas.winfo_height():
+                # update the canvas's width to fit the inner frame
+                self.primary_canvas.config(height=self.scroll_window.winfo_reqheight())
+
         def add_plots(self, cross_sections):
+            self.delete_plots()
             for cross_section in cross_sections:
-                self.plots.append(PlotWindow(self.primary_canvas, self, background=PrimaryStyle.PRIMARY_COLOR,
+                self.primary_canvas.update()
+                self.plots.append(PlotWindow(self.scroll_window, self, width=self.block_size,
+                                             height=self.block_size,
+                                             background=PrimaryStyle.PRIMARY_COLOR,
                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS))
+
                 self.plots[-1].pack(side=tk.LEFT, fill=None, anchor=tk.CENTER)
                 self.plots[-1].plot(callback=cross_section.plot_gui(PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR,
                                                                     PrimaryStyle.QUATERNARY_COLOR))
+                self.plots[-1].update()
+            self.scroll_window.update()
+            self.root.stl_prev_window_label_frame.update()
 
         def delete_plots(self):
-            pass
+            del self.plots
+            self.plots = list()
+
+            self.root.stl_prev_window_label_frame.configure(text='Slice Preview:')
+            self.root.stl_prev_window_label_frame.update()
+            self.update()
 
 
 class DatabaseWindow(EmbeddedWindow):

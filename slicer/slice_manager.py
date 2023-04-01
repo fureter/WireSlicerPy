@@ -26,6 +26,48 @@ class SliceManager(object):
         :param str units: Units the stl file are saved as, used to convert to mm.
         """
         logger = logging.getLogger(__name__)
+        output_dir = os.path.join(output_dir, name)
+
+        subdivided_list = SliceManager.stl_precondition(stl_path=stl_path, logger=logger, units=units,
+                                                         output_dir=output_dir, work_piece=work_piece,
+                                                         hollow_section_list=hollow_section_list,
+                                                         open_nose=open_nose, open_tail=open_tail,
+                                                         wall_thickness=wall_thickness,
+                                                         name=name, subdivisions=subdivisions, wire_cutter=wire_cutter)
+
+        cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, work_piece,
+                                                                              section_gap=section_gap,
+                                                                              wire_cutter=wire_cutter,
+                                                                              output_dir=os.path.join(output_dir,
+                                                                                                      'plots'))
+        serializer.encode(cut_paths, output_dir=os.path.join(output_dir, 'json'),
+                          file_name='cut_paths')
+
+        for ind, cut_path in enumerate(cut_paths):
+            plt.close('all')
+            plt.figure(figsize=(16, 9), dpi=360)
+            cut_path.plot_cut_path()
+            plt.axis('equal')
+            plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_cut_path_%s.png' % (name, ind)))
+            plt.show()
+
+            tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
+            tool_path.zero_forwards_path_for_cutting()
+            gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
+            gcode.create_relative_gcode(output_dir=output_dir, name=name, tool_path=tool_path, wire_cutter=wire_cutter,
+                                        part=ind + 1)
+
+            plt.close('all')
+            plt.figure(figsize=(16, 9), dpi=400)
+            tool_path.plot_tool_paths()
+            plt.axis('equal')
+            plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_tool_path_%s.png' % (name, ind)))
+            plt.show()
+
+
+    @staticmethod
+    def stl_precondition(stl_path, logger, units, output_dir, work_piece, hollow_section_list, open_nose, open_tail,
+                          wall_thickness, name, subdivisions, wire_cutter, flip_axis=False):
         SliceManager.create_folders(output_dir, name)
         output_dir = os.path.join(output_dir, name)
         cut_stl = comp.STL(file_path=stl_path, units=units)
@@ -64,7 +106,7 @@ class SliceManager(object):
         e_msg = 'Error: Index specified for hollow list is greater than number of cross sections'
 
         if hollow_section_list is None:
-            hollow_section_list = [True] * (length-1)
+            hollow_section_list = [True] * (length - 1)
             if not open_nose:
                 hollow_section_list[0] = False
             if not open_tail:
@@ -121,35 +163,7 @@ class SliceManager(object):
 
         serializer.encode(subdivided_list, output_dir=os.path.join(output_dir, 'json'),
                           file_name='subdivided_section_list')
-
-        cut_paths = comp.CutPath.create_cut_path_from_cross_section_pair_list(subdivided_list, work_piece,
-                                                                              section_gap=section_gap,
-                                                                              wire_cutter=wire_cutter,
-                                                                              output_dir=os.path.join(output_dir,
-                                                                                                      'plots'))
-        serializer.encode(cut_paths, output_dir=os.path.join(output_dir, 'json'),
-                          file_name='cut_paths')
-
-        for ind, cut_path in enumerate(cut_paths):
-            plt.close('all')
-            plt.figure(figsize=(16, 9), dpi=360)
-            cut_path.plot_cut_path()
-            plt.axis('equal')
-            plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_cut_path_%s.png' % (name, ind)))
-            plt.show()
-
-            tool_path = tp.ToolPath.create_tool_path_from_cut_path(cut_path=cut_path, wire_cutter=wire_cutter)
-            tool_path.zero_forwards_path_for_cutting()
-            gcode = gg.GCodeGenerator(wire_cutter, travel_type=gg.TravelType.CONSTANT_RATIO)
-            gcode.create_relative_gcode(output_dir=output_dir, name=name, tool_path=tool_path, wire_cutter=wire_cutter,
-                                        part=ind+1)
-
-            plt.close('all')
-            plt.figure(figsize=(16, 9), dpi=400)
-            tool_path.plot_tool_paths()
-            plt.axis('equal')
-            plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_final_tool_path_%s.png' % (name, ind)))
-            plt.show()
+        return subdivided_list
 
     @staticmethod
     def wing_to_gcode(wing, wire_cutter, output_dir):
@@ -188,3 +202,12 @@ class SliceManager(object):
             os.mkdir(os.path.join(output_dir, name, 'plots'))
         if not os.path.exists(os.path.join(output_dir, name, 'json')):
             os.mkdir(os.path.join(output_dir, name, 'json'))
+
+
+class CadParts(object):
+    """
+    Class to track required configurations for slicing CAD parts. This class is used for interfacing between the CAD
+    GUI window and the SliceManager. This class is also used for saving CADPart settings across different GUI
+    selections. This differs from wings and wire_cutters as they are completely self contained object and therefore do
+    not require an intermediary like this.
+    """
