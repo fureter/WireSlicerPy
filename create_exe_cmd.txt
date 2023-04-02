@@ -1,0 +1,1 @@
+pyinstaller -wF .\wire_slicer.spec

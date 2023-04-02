@@ -113,7 +113,7 @@ if __name__ == '__main__':
     # setup logger and logger handlers
     setup()
     # Create the main window
-    main_window = gui.window.MainWindow('WireSlicerPy', 800, 610,
+    main_window = gui.window.MainWindow('WireSlicerPy', 800, 603,
                                         project_manager=pm.ProjectManager(ini_file=r'./WireSlicerPy.json'))
     # Fake Initilize the recent projects
     setup_gui(main_window)

@@ -758,8 +758,9 @@ class SpatialPlacement:
 
                 # todo: check for any holes prior to ind before adding path from 0:ind+1
                 # All holes occur before the start index of the cut.
-                path1 = prim.Path(section_path1[0:ind+1])
-                path2 = prim.Path(section_path2[0:ind+1])
+                # Need to include the final point from the previous segment to prevent discontinuities
+                path1 = prim.Path([section_path1[-1]] + section_path1[0:ind+1])
+                path2 = prim.Path([section_path2[-1]] + section_path2[0:ind+1])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
             else:
@@ -807,7 +808,6 @@ class SpatialPlacement:
                 path2 = prim.Path(section_path2[inds_prim[-1]:ind+1])
                 cut_list_1.append(comp.CrossSection(path1))
                 cut_list_2.append(comp.CrossSection(path2))
-
 
         else:
             path1 = prim.Path(section_path1[ind:] + section_path1[0:ind + 1])

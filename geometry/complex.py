@@ -183,24 +183,29 @@ class CrossSectionPair(object):
                 num_holes = len(holes[0])
                 for ind in range(num_holes):
                     hole1 = holes[0][ind]
-                    hole2 = holes[1][ind]
                     size = len(hole1)
-                    size2 = len(hole2)
                     n = int(size / CULL_FACTOR)
-                    m = int(size2 / CULL_FACTOR)
                     x = np.zeros(size)
-                    x2 = np.zeros(size2)
                     y = np.zeros(size)
-                    y2 = np.zeros(size2)
                     for i in range(0, size):
                         x[i] = hole1[i]['x']
                         y[i] = hole1[i]['y']
+                    plot1.plot(x, y, font_color)
+                    plot1.plot(x[::n], y[::n], 'v', markersize=3, color=scatter_color1)
+
+            if self.section2.holes is not None:
+                holes = self.get_path_hole()
+                num_holes = len(holes[1])
+                for ind in range(num_holes):
+                    hole2 = holes[1][ind]
+                    size2 = len(hole2)
+                    m = int(size2 / CULL_FACTOR)
+                    x2 = np.zeros(size2)
+                    y2 = np.zeros(size2)
                     for i in range(0, size2):
                         x2[i] = hole2[i]['x']
                         y2[i] = hole2[i]['y']
-                    plot1.plot(x, y, font_color)
                     plot1.plot(x2, y2, font_color)
-                    plot1.plot(x[::n], y[::n], 'v', markersize=3, color=scatter_color1)
                     plot1.plot(x2[::m], y2[::m], 'v', markersize=3, color=scatter_color2)
 
             plot1.axis('equal')
@@ -974,7 +979,7 @@ class STL():
         self._setup(units=units)
 
     def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, output_dir=None,
-                                   hollow_section_list=None):
+                                   hollow_section_list=None, num_points=512):
         """
 
         :param float wall_thickness: Thickness of the part from the outer shell to the inner shell created by a simple
@@ -990,7 +995,8 @@ class STL():
         """
         logger = logging.getLogger(__name__)
         cross_section_pair_list = list()
-        self.slice_into_cross_sections(origin_plane, spacing, number_sections, output_dir=output_dir)
+        self.slice_into_cross_sections(origin_plane, spacing, number_sections, output_dir=output_dir,
+                                       num_points=num_points)
         cross_section_list = copy.deepcopy(self.cross_sections)
 
         for ind in range(1, len(cross_section_list)):
@@ -1008,6 +1014,11 @@ class STL():
         return cross_section_pair_list
 
     def _reorganize_holes(self, cross_section_pair_list):
+        """
+
+        :param cross_section_pair_list:
+        :return:
+        """
         for pair in cross_section_pair_list:
             holes1 = pair.section1.get_path_hole()
             holes2 = pair.section2.get_path_hole()
@@ -1024,12 +1035,15 @@ class STL():
                 distance = list()
                 # Todo: This probably only works for a 2 hole case, should test with 2+ and rewrite.
                 for hole in holes1:
-
                     distance.append((hole[0] - holes2[0][0])**2)
                 if distance[1] < distance[0]:
                     pair.section2.holes = list(reversed(pair.section2.holes))
 
     def _normalize_number_of_holes(self, cross_section_pair_list):
+        """
+
+        :param cross_section_pair_list:
+        """
         for pair in cross_section_pair_list:
             holes1 = pair.section1.get_path_hole()
             holes2 = pair.section2.get_path_hole()
@@ -1044,7 +1058,7 @@ class STL():
                 else:
                     pair.section1.holes = copy.deepcopy(pair.section2.holes)
 
-    def slice_into_cross_sections(self, origin_plane, spacing, number_sections, output_dir=None):
+    def slice_into_cross_sections(self, origin_plane, spacing, number_sections, output_dir=None, num_points=512):
         """
         Slices the STL into `number_sections` with `spacing` separation normal to the `origin_plane`.
 
@@ -1054,9 +1068,11 @@ class STL():
         """
         logger = logging.getLogger(__name__)
         self.trimesh_cross_sections = list()
+
         heights = list()
         for i in range(number_sections):
             heights.append(spacing * i)
+
         origin = np.array(origin_plane.origin)
         normal = np.array(origin_plane.normal)
         sections = self.mesh.section_multiplane(plane_origin=origin, plane_normal=normal, heights=heights)
@@ -1100,7 +1116,7 @@ class STL():
                     # Close the path so that the last point is the first point.
                     path = prim.GeometricFunctions.close_path(path)
                     # Normalize the path so that there are X number points uniform spacing from one another.
-                    path = prim.GeometricFunctions.normalize_path_points(path, num_points=512)
+                    path = prim.GeometricFunctions.normalize_path_points(path, num_points=num_points)
                     if output_dir:
                         plt.close('all')
                         plt.figure(figsize=(16, 9), dpi=360)
@@ -1133,7 +1149,7 @@ class STL():
                                     prim.Point(section.discrete[ind][ind2][0], section.discrete[ind][ind2][1], 0))
                             path_hole = PointManip.reorder_2d_cw(hole_points, method=5)
                             path_hole = prim.GeometricFunctions.close_path(path_hole)
-                            path_hole = prim.GeometricFunctions.normalize_path_points(path_hole, num_points=512)
+                            path_hole = prim.GeometricFunctions.normalize_path_points(path_hole, num_points=num_points)
                             path_hole = PointManip.reorder_2d_cw(path_hole, method=6)
                             path_hole = prim.GeometricFunctions.remove_duplicate_memory_from_path(path_hole)
                             cross_section.add_hole(CrossSection(section_list=[prim.Path(path_hole)]))

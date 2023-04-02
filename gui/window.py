@@ -1,16 +1,18 @@
 import copy
 import logging
 import os
+import threading
+import timeit
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.ttk as ttk
 from textwrap import dedent
-import threading
+import webbrowser
 
+import git
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-import git
 
 import g_code.command_library as cl
 import geometry.complex as cm
@@ -23,29 +25,15 @@ import slicer.wire_cutter as wc
 from util.util_functions import is_float
 from .styles import PrimaryStyle
 
+USERS_GUIDE_LINK = r'https://docs.google.com/document/d/1Y9rKHuZB0Q6IvmGO-PNEoXhAPTkg2_eH27yfsKHy7n8/edit?usp=sharing'
 
-class ProcessThread(threading.Thread):
-    def __init__(self, **kwargs):
-        super(ProcessThread, self).__init__(**kwargs)
 
-    def run(self):
-        """Method representing the thread's activity.
+def create_thread_callback(func):
+    def callback():
+        threading.Thread(target=func).start()
 
-        You may override this method in a subclass. The standard run() method
-        invokes the callable object passed to the object's constructor as the
-        target argument, if any, with sequential and keyword arguments taken
-        from the args and kwargs arguments, respectively.
+    return callback
 
-        """
-        ret_val = None
-        try:
-            if self._target is not None:
-                ret_val = self._target(*self._args, **self._kwargs)
-        finally:
-            # Avoid a refcycle if the thread is running a function with
-            # an argument that has a member that points to the thread.
-            del self._target, self._args, self._kwargs
-        return ret_val
 
 class WindowState(object):
     HOME = 0
@@ -215,18 +203,19 @@ class ScrollableSelectionMenu(tk.Frame):
         self.items[self.curr_select].button.update()
 
     def update_from_list(self, names):
-        for index, name in enumerate(names):
-            self.items.append(ToggleButton(self.scroll_window, top_level_scroll=self, index=index,
-                                           width=72, height=72, text=name,
-                                           bg=PrimaryStyle.SECONDARY_COLOR,
-                                           fg=PrimaryStyle.FONT_COLOR))
-            self.items[-1].pack(side=tk.TOP, fill=None, anchor=tk.CENTER)
+        if len(names) >= 1:
+            for index, name in enumerate(names):
+                self.items.append(ToggleButton(self.scroll_window, top_level_scroll=self, index=index,
+                                               width=72, height=72, text=name,
+                                               bg=PrimaryStyle.SECONDARY_COLOR,
+                                               fg=PrimaryStyle.FONT_COLOR))
+                self.items[-1].pack(side=tk.TOP, fill=None, anchor=tk.CENTER)
 
-        self.curr_select = len(self.items) - 1
-        self.items[self.curr_select].button.config(background=PrimaryStyle.SELECT_COLOR)
-        self.items[self.curr_select].button.update()
-        self.root.set_visibility(visible=True)
-        self.root.update_gui(index=self.curr_select)
+            self.curr_select = len(self.items) - 1
+            self.items[self.curr_select].button.config(background=PrimaryStyle.SELECT_COLOR)
+            self.items[self.curr_select].button.update()
+            self.root.set_visibility(visible=True)
+            self.root.update_gui(index=self.curr_select)
 
     def reset(self):
         for item in reversed(self.items):
@@ -319,6 +308,7 @@ class MainWindow(tk.Tk):
     :param int height:
     :param pm.ProjectManager project_manager:
     """
+
     def __init__(self, title, width, height, project_manager):
         super(MainWindow, self).__init__(baseName=title)
         self.project_manager = project_manager
@@ -336,7 +326,7 @@ class MainWindow(tk.Tk):
 
         self.active_window = WindowState.HOME
         self.grid_rowconfigure(index=0, weight=600)
-        self.grid_rowconfigure(index=1, weight=10)
+        self.grid_rowconfigure(index=1, weight=3)
         self.grid_columnconfigure(index=0, weight=1)
 
         self.primary_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR)
@@ -360,9 +350,9 @@ class MainWindow(tk.Tk):
         self._create_menu_bar()
         s = ttk.Style()
         s.theme_use('clam')
-        s.configure('Horizontal.TProgressbar', foreground=PrimaryStyle.TETRARY_COLOR,
-                    background=PrimaryStyle.TETRARY_COLOR)
-        self.progress_bar = ttk.Progressbar(self, orient='horizontal', mode='indeterminate', length=width-5)
+        s.configure('Horizontal.TProgressbar', foreground=PrimaryStyle.TERTIARY_COLOR,
+                    background=PrimaryStyle.TERTIARY_COLOR)
+        self.progress_bar = ttk.Progressbar(self, orient='horizontal', mode='indeterminate', length=width - 5)
         self.progress_bar.grid(row=1, column=0, sticky=tk.NSEW)
 
         self.switch_embedded_window(WindowState.HOME)
@@ -398,6 +388,7 @@ class MainWindow(tk.Tk):
     def save_project(self):
         self.embedded_windows[WindowState.WING].save_settings()
         self.embedded_windows[WindowState.MACHINE_SETUP].save_settings()
+        self.embedded_windows[WindowState.CAD].save_settings()
         if self.curr_project.name in 'Default':
             output_file = filedialog.asksaveasfilename(title="Create Project", master=self, defaultextension='.proj',
                                                        filetypes=[('Project', '*.proj')])
@@ -414,24 +405,21 @@ class MainWindow(tk.Tk):
         self.update()
         file_path = filedialog.askopenfilename(title="Open Project", master=self,
                                                filetypes=[('Project', '*.proj')])
-        self.curr_project = pm.Project.load_project(file_path)
-        self.title(self.window_title + ' Project: %s' % self.curr_project.name)
-        self.embedded_windows[WindowState.WING].update_from_project()
-        self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
-        self.embedded_windows[WindowState.MACHINE_SETUP].update_from_project()
-        self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
-        self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
-
-        self.project_manager.update_project_list(self.curr_project)
+        if os.path.exists(file_path):
+            self._load_project(file_path)
 
     def load_project_from_file_path(self, file_path):
         self.update()
+        self._load_project(file_path)
+
+    def _load_project(self, file_path):
         self.curr_project = pm.Project.load_project(file_path)
         self.title(self.window_title + ' Project: %s' % self.curr_project.name)
         self.embedded_windows[WindowState.WING].update_from_project()
         self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
         self.embedded_windows[WindowState.MACHINE_SETUP].update_from_project()
         self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
+        self.embedded_windows[WindowState.CAD].update_from_project()
         self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
 
         self.project_manager.update_project_list(self.curr_project)
@@ -459,7 +447,7 @@ class MainWindow(tk.Tk):
 
         help_menu = tk.Menu(self.menu_bar, tearoff=0)
         help_menu.add_command(label="About")
-        help_menu.add_command(label="Users Guide")
+        help_menu.add_command(label="Users Guide", command=lambda: webbrowser.open(USERS_GUIDE_LINK))
         help_menu.add_command(label="Update")
         self.menu_bar.add_cascade(label="Help", menu=help_menu)
 
@@ -476,7 +464,7 @@ class EmbeddedWindow(tk.Frame):
     def manage_checkbox_color(check_box, var):
         val = var.get()
         if val == 1:
-            check_box.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+            check_box.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
         else:
             check_box.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
 
@@ -569,7 +557,7 @@ class HomeWindow(EmbeddedWindow):
         for btn in [self.machine_button, self.body_button, self.wing_button, self.database_button]:
             btn.grid(sticky=tk.NSEW)
 
-        self.news_label = tk.Label(self.left_bot_frame, text='News:', bg=PrimaryStyle.TETRARY_COLOR,
+        self.news_label = tk.Label(self.left_bot_frame, text='News:', bg=PrimaryStyle.TERTIARY_COLOR,
                                    relief=tk.SOLID, borderwidth=1, justify=tk.LEFT,
                                    fg=PrimaryStyle.FONT_COLOR)
         self.news_label.pack(fill=tk.X, anchor=tk.NW, expand=False)
@@ -585,7 +573,7 @@ class HomeWindow(EmbeddedWindow):
         self.proj_ref = dict()
         self.proj_var = tk.StringVar(value=self.proj_list)
 
-        self.proj_label = tk.Label(self.right_frame, text='Recent Projects:', bg=PrimaryStyle.TETRARY_COLOR,
+        self.proj_label = tk.Label(self.right_frame, text='Recent Projects:', bg=PrimaryStyle.TERTIARY_COLOR,
                                    fg=PrimaryStyle.FONT_COLOR,
                                    borderwidth=1, relief=tk.SOLID)
         self.proj_label.pack(fill=tk.X, anchor=tk.NW, expand=False)
@@ -972,12 +960,12 @@ class MachineWindow(EmbeddedWindow):
                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                       fg=PrimaryStyle.FONT_COLOR,
                                       text='Motor Letter:')
-        self.d1_frame.grid(row=0, column=1, rowspan=3, sticky=tk.NSEW, pady=(0, 1),
+        self.d1_frame.grid(row=0, column=1, rowspan=2, sticky=tk.NSEW, pady=(0, 0),
                            padx=(2, 1))
         self.d1_frame.pack_propagate(False)
         self.d1_text = tk.Text(self.d1_frame)
         self.d1_text.insert('end', 'V')
-        self.d1_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 2, padx=PrimaryStyle.GENERAL_PADDING / 2)
+        self.d1_text.pack(pady=PrimaryStyle.GENERAL_PADDING / 4, padx=PrimaryStyle.GENERAL_PADDING / 2)
 
         # ==============================================================================================================
         # Bottom Frame
@@ -1016,7 +1004,13 @@ class MachineWindow(EmbeddedWindow):
         self.right_frame.pack_propagate(False)
         self.right_frame.grid_propagate(False)
 
-        self.gantry_photo = tk.PhotoImage(file=os.path.join('assets', 'gui', 'gantries.png'), width=900, height=900)
+        # Handle the asset being packaged into an EXE, or still being local if running via interpreter
+        self.gantry_photo_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                                              'assets', 'gui', 'gantries.png'))
+        self.logger.debug('Gantry Photo Path: %s', self.gantry_photo_path)
+
+        self.gantry_photo = tk.PhotoImage(
+            file=self.gantry_photo_path if os.path.exists(self.gantry_photo_path) else None, width=900, height=900)
         self.gantry_photo = self.gantry_photo.subsample(2)
         self.photo_label = tk.Label(self.right_frame, image=self.gantry_photo)
         self.photo_label.grid(row=0, column=0, sticky=tk.NSEW)
@@ -1486,7 +1480,7 @@ class WingWindow(EmbeddedWindow):
                 airfoil = gp.Dat(
                     data=self._transform_airfoil(
                         self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
-                airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR)
+                airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TERTIARY_COLOR)
 
                 holes = self.root.wings[self.root.curr_selected].root_holes if self.position == 0 else self.root.wings[
                     self.root.curr_selected].tip_holes
@@ -1495,7 +1489,7 @@ class WingWindow(EmbeddedWindow):
                     for hole in holes:
                         airfoil_hole = gp.Dat(
                             data=self._transform_hole(hole))
-                        airfoil_hole.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR,
+                        airfoil_hole.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TERTIARY_COLOR,
                                                         markersize=1)
 
                 xlim = self.root._get_xlim_for_plotting()
@@ -1771,7 +1765,7 @@ class WingWindow(EmbeddedWindow):
             # self.align_led_var.set(not self.align_led_var.get())
             # print('check align led set to: %s' % self.align_led_var.get())
             if self.align_led_var.get() == 1:
-                self.align_led_edge.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+                self.align_led_edge.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
             else:
                 self.align_led_edge.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
 
@@ -1779,7 +1773,7 @@ class WingWindow(EmbeddedWindow):
             # self.gen_lr_var.set(not self.gen_lr_var.get())
             # print('check gen lr set to: %s' % self.gen_lr_var.get())
             if self.gen_lr_var.get() == 1:
-                self.gen_left_right.configure(selectcolor=PrimaryStyle.TETRARY_COLOR)
+                self.gen_left_right.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
             else:
                 self.gen_left_right.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
 
@@ -1954,7 +1948,7 @@ class WingWindow(EmbeddedWindow):
                 self.grid_columnconfigure(index=1, weight=1)
                 self.grid_columnconfigure(index=2, weight=1)
 
-                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(%)', font=("Arial", 8),
                                                        **GeneralSettings.LABEL_FRAME_SETTINGS)
                 self.chord_start_frame.grid(row=0, column=0, columnspan=3, sticky=tk.NSEW)
                 self.chord_start_text = tk.Text(self.chord_start_frame)
@@ -2046,7 +2040,7 @@ class WingWindow(EmbeddedWindow):
                 tmp_num_points = self.num_points_text.get("1.0", "end-1c")
 
                 try:
-                    chord_start = float(tmp_chord_start)
+                    chord_start = float(tmp_chord_start) / 100.0
                     height = float(tmp_height)
                     width = float(tmp_width)
                     angle = float(tmp_angle)
@@ -2058,8 +2052,9 @@ class WingWindow(EmbeddedWindow):
 
                     if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
 
-                        curr_wing.add_hole_root(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
-                                                                               start_angle, num_points))
+                        curr_wing.add_hole_root(
+                            cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
+                                                           start_angle, num_points))
                         curr_wing.add_hole_tip(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
                                                                               start_angle, num_points))
                     else:
@@ -2090,7 +2085,7 @@ class WingWindow(EmbeddedWindow):
                 self.grid_columnconfigure(index=0, weight=1)
                 self.grid_columnconfigure(index=1, weight=1)
 
-                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(mm)', font=("Arial", 8),
+                self.chord_start_frame = tk.LabelFrame(self, text='Chord Start(%)', font=("Arial", 8),
                                                        **GeneralSettings.LABEL_FRAME_SETTINGS)
                 self.chord_start_frame.grid(row=0, column=0, columnspan=1, sticky=tk.NSEW)
                 self.chord_start_text = tk.Text(self.chord_start_frame)
@@ -2167,7 +2162,7 @@ class WingWindow(EmbeddedWindow):
                 tmp_num_points = self.num_points_text.get("1.0", "end-1c")
 
                 try:
-                    chord_start = float(tmp_chord_start)
+                    chord_start = float(tmp_chord_start) / 100.0
                     radius = float(tmp_radius)
                     angle = float(tmp_angle)
                     offset = float(tmp_offset)
@@ -2183,10 +2178,12 @@ class WingWindow(EmbeddedWindow):
                         curr_wing.add_hole_tip(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
                                                                          start_angle, num_points))
                     else:
-                        curr_wing.replace_hole_root(curr_index, cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
-                                                                          start_angle, num_points))
-                        curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
-                                                                         start_angle, num_points))
+                        curr_wing.replace_hole_root(curr_index,
+                                                    cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                              start_angle, num_points))
+                        curr_wing.replace_hole_tip(curr_index,
+                                                   cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
+                                                                             start_angle, num_points))
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
                     self.root.root.bot_airfoil_frame.plot_airfoil('manual')
@@ -2264,8 +2261,8 @@ class WingWindow(EmbeddedWindow):
                 tmp_num_points = self.num_points_text.get("1.0", "end-1c")
 
                 try:  # TODO: Better error handling
-                    chord_start = float(tmp_chord_start)
-                    chord_stop = float(tmp_chord_stop)
+                    chord_start = float(tmp_chord_start) / 100.0
+                    chord_stop = float(tmp_chord_stop) / 100.0
                     thickness = float(tmp_thickness)
                     num_points = int(tmp_num_points)
 
@@ -2284,10 +2281,12 @@ class WingWindow(EmbeddedWindow):
                         curr_wing.add_hole_tip(cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
                                                                          num_points=num_points))
                     else:
-                        curr_wing.replace_hole_root(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
-                                                                          num_points=num_points))
-                        curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
-                                                                         num_points=num_points))
+                        curr_wing.replace_hole_root(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop,
+                                                                                          root_foil, thickness,
+                                                                                          num_points=num_points))
+                        curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop,
+                                                                                         tip_foil, thickness,
+                                                                                         num_points=num_points))
 
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
@@ -2406,6 +2405,8 @@ class WingWindow(EmbeddedWindow):
 
             self.wing_setting_frame.cnc_machine_option_menu.configure(
                 values=self.wing_setting_frame.get_machine_options())
+            if wing.machine_tag is not None and wing.machine_tag in self.wing_setting_frame.get_machine_options():
+                self.wing_setting_frame.cnc_machine_option_menu.set(wing.machine_tag)
 
             if wing.root_airfoil_tag is not None:
                 self.top_airfoil_frame.airfoil_option_menu.set(wing.root_airfoil_tag)
@@ -2468,6 +2469,11 @@ class CADWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(CADWindow, self).__init__(master, WindowState.CAD, root)
 
+        self.logger = logging.getLogger(__name__)
+
+        self.curr_selected = None
+        self.cad_parts = list()
+
         self.grid_rowconfigure(index=0, weight=100)
         self.grid_columnconfigure(index=0, weight=1)
         self.grid_columnconfigure(index=1, weight=8)
@@ -2490,8 +2496,6 @@ class CADWindow(EmbeddedWindow):
 
         self._create_top()
         self._create_bot()
-
-        self.cad_parts = list()
 
     def set_visibility(self, visible):
         if visible:
@@ -2528,8 +2532,11 @@ class CADWindow(EmbeddedWindow):
         self.name_frame.pack_propagate(False)
 
         self.name_text = tk.Text(self.name_frame)
-        self.name_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 2, PrimaryStyle.GENERAL_PADDING / 4),
+        self.name_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 4),
                             padx=PrimaryStyle.GENERAL_PADDING / 2)
+        self.name_text.bind("<KeyRelease>", self.update_name)
+        self.name_text.bind("<FocusOut>", self.update_name)
+        self.name_text.bind("<FocusIn>", self.update_name)
 
         self.stl_frame = tk.LabelFrame(self.top_top_frame, text='File:', background=PrimaryStyle.SECONDARY_COLOR,
                                        highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
@@ -2545,7 +2552,7 @@ class CADWindow(EmbeddedWindow):
 
         self.stl_menu = ttk.Combobox(self.stl_frame, textvariable=self.selected_stl,
                                      values=self.get_file_options())
-        self.stl_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2,
+        self.stl_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 4,
                                                                   PrimaryStyle.GENERAL_PADDING / 4),
                            padx=PrimaryStyle.GENERAL_PADDING / 2)
 
@@ -2564,7 +2571,7 @@ class CADWindow(EmbeddedWindow):
 
         self.unit_menu = ttk.Combobox(self.units_frame, textvariable=self.selected_units,
                                       values=['mm', 'cm', 'm', 'in'])
-        self.unit_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 2,
+        self.unit_menu.grid(row=0, column=0, sticky=tk.NSEW, pady=(PrimaryStyle.GENERAL_PADDING / 4,
                                                                    PrimaryStyle.GENERAL_PADDING / 4),
                             padx=PrimaryStyle.GENERAL_PADDING / 2)
 
@@ -2572,8 +2579,8 @@ class CADWindow(EmbeddedWindow):
                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
         self.mid_frame.grid(row=1, column=0, sticky=tk.NSEW)
-        self.mid_frame.grid_columnconfigure(index=0, weight=1)
-        self.mid_frame.grid_columnconfigure(index=1, weight=3)
+        self.mid_frame.grid_columnconfigure(index=0, weight=2)
+        self.mid_frame.grid_columnconfigure(index=1, weight=10)
         self.mid_frame.grid_rowconfigure(index=0, weight=1)
         self.mid_frame.grid_propagate(False)
 
@@ -2611,7 +2618,10 @@ class CADWindow(EmbeddedWindow):
         self.bot_frame.grid_columnconfigure(index=0, weight=1)
         self.bot_frame.grid_rowconfigure(index=0, weight=1)
 
-        self.stl_prev_window_label_frame = tk.LabelFrame(self.bot_frame, text='Slice Preview:',
+        self.stl_prev_label_frame_text = tk.StringVar()
+        self.stl_prev_label_frame_text.set('Slice Preview:')
+
+        self.stl_prev_window_label_frame = tk.LabelFrame(self.bot_frame, text=self.stl_prev_label_frame_text.get(),
                                                          background=PrimaryStyle.SECONDARY_COLOR,
                                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
@@ -2628,29 +2638,185 @@ class CADWindow(EmbeddedWindow):
 
     def get_file_options(self):
         files = list()
-        for i in range(1, 4):
-            files.append('STL%s' % i)
-        for i in range(4, 8):
-            files.append('OBJ%s' % i)
+        files.extend(self.root.curr_project.database.cad_files.keys())
         return files
 
+    def update_name(self, event):
+        self.scroll_frame.update_curr_name(name=self.name_text.get("1.0", "end-1c"))
+
+    def save_settings(self):
+        if self.curr_selected is not None:
+            cad_part = self.cad_parts[self.curr_selected]
+            cad_part.name = self.name_text.get("1.0", "end-1c")
+
+            cad_part.stl_tag = self.stl_menu.get()
+            cad_part.units = self.unit_menu.get()
+            cad_part.machine_tag = self.slice_frame.cnc_machine_option_menu.get()
+
+            tmp_wp_length = self.workpiece_frame.length_text.get("1.0", "end-1c")
+            tmp_wp_height = self.workpiece_frame.height_text.get("1.0", "end-1c")
+            tmp_wp_thickness = self.workpiece_frame.thickness_text.get("1.0", "end-1c")
+            tmp_subdivisions = self.setting_frame.subdivision_text.get("1.0", "end-1c")
+            tmp_wall_thickness = self.setting_frame.wall_thickness_text.get("1.0", "end-1c")
+            tmp_section_gap = self.setting_frame.section_gap_text.get("1.0", "end-1c")
+
+            num_points = self.setting_frame.num_points_text.get(1.0, 'end-1c')
+
+            tmp_kerf = self.setting_frame.kerf_text.get(1.0, 'end-1c')
+            tmp_max_kerf = self.setting_frame.max_kerf_text.get(1.0, 'end-1c')
+
+            tmp_axis = 0
+            if self.setting_frame.secondary_axis_var.get() == 1:
+                tmp_axis = 1
+            elif self.setting_frame.tertiary_axis_var.get() == 1:
+                tmp_axis = 2
+
+            flip_axis = True if self.setting_frame.flip_axis_var.get() == 1 else False
+            open_nose = True if self.setting_frame.open_nose_var.get() == 1 else False
+            open_tail = True if self.setting_frame.open_tail_var.get() == 1 else False
+
+            cad_part.wp_length = get_float(tmp_wp_length)
+            cad_part.wp_height = get_float(tmp_wp_height)
+            cad_part.wp_thickness = get_float(tmp_wp_thickness)
+            cad_part.subdivisions = int(get_float(tmp_subdivisions))
+            cad_part.wall_thickness = get_float(tmp_wall_thickness)
+            cad_part.section_gap = get_float(tmp_section_gap)
+            cad_part.num_points = int(get_float(num_points))
+            cad_part.kerf = get_float(tmp_kerf)
+            cad_part.max_kerf = get_float(tmp_max_kerf)
+            cad_part.slice_axis = tmp_axis
+            cad_part.flip_axis = flip_axis
+            cad_part.open_nose = open_nose
+            cad_part.open_tail = open_tail
+            cad_part.hollow_list = self.setting_frame.advanced_hollow_cntrl_text.get(1.0, 'end-1c')
+
     def update_from_project(self):
-        raise NotImplementedError('update_from_project not Implemented for WindowType: %s' % self.window_type)
+        self.scroll_frame.reset()
+        self.reset()
+
+        self.cad_parts = self.root.curr_project.cad_parts
+
+        names = list()
+        for item in self.cad_parts:
+            names.append(item.name)
+        self.scroll_frame.update_from_list(names)
 
     def add_item(self):
-        raise NotImplementedError('add_item not Implemented for WindowType: %s' % self.window_type)
+        self.cad_parts.append(sm.CadParts(name='', logger=self.logger))
 
     def delete_item(self, index):
-        raise NotImplementedError('delete_item not Implemented for WindowType: %s' % self.window_type)
+        tmp = self.cad_parts[index]
+        self.cad_parts.remove(tmp)
+        del tmp
 
     def update_gui(self, index):
-        raise NotImplementedError('update_gui not Implemented for WindowType: %s' % self.window_type)
+        # Index is only none if we are removing an entry, do not save wing settings if we are deleting
+        ret_val = None
+        if index is None:
+            self.set_visibility(False)
+        else:
+            self.save_settings()
+            self.curr_selected = index
+            self.logger.info('gui cad index: %s', index)
+            cad_part = self.cad_parts[self.curr_selected]
+
+            # Clear the text fields
+            self.name_text.delete(1.0, "end")
+            self.workpiece_frame.length_text.delete(1.0, "end")
+            self.workpiece_frame.height_text.delete(1.0, "end")
+            self.workpiece_frame.thickness_text.delete(1.0, "end")
+            self.setting_frame.subdivision_text.delete(1.0, "end")
+            self.setting_frame.wall_thickness_text.delete(1.0, "end")
+            self.setting_frame.section_gap_text.delete(1.0, "end")
+            self.setting_frame.num_points_text.delete(1.0, "end")
+            self.setting_frame.kerf_text.delete(1.0, "end")
+            self.setting_frame.max_kerf_text.delete(1.0, "end")
+            self.setting_frame.advanced_hollow_cntrl_text.delete(1.0, "end")
+
+            # Update the text fields with any available information from the wing
+            if cad_part.name is not None:
+                self.name_text.insert(1.0, cad_part.name)
+                ret_val = cad_part.name
+            if cad_part.wp_length is not None:
+                self.workpiece_frame.length_text.insert(1.0, str(cad_part.wp_length))
+            if cad_part.wp_height is not None:
+                self.workpiece_frame.height_text.insert(1.0, str(cad_part.wp_height))
+            if cad_part.wp_thickness is not None:
+                self.workpiece_frame.thickness_text.insert(1.0, str(cad_part.wp_thickness))
+            if cad_part.subdivisions is not None:
+                self.setting_frame.subdivision_text.insert(1.0, str(int(cad_part.subdivisions)))
+            if cad_part.wall_thickness is not None:
+                self.setting_frame.wall_thickness_text.insert(1.0, str(cad_part.wall_thickness))
+            if cad_part.section_gap is not None:
+                self.setting_frame.section_gap_text.insert(1.0, str(cad_part.section_gap))
+            if hasattr(cad_part, 'num_points') and cad_part.num_points is not None:
+                self.setting_frame.num_points_text.insert(1.0, str(cad_part.num_points))
+            else:
+                self.setting_frame.num_points_text.insert(1.0, str(512))  # Num points defaults to 512
+            if hasattr(cad_part, 'kerf') and cad_part.kerf is not None:
+                self.setting_frame.kerf_text.insert(1.0, str(cad_part.kerf))
+            if hasattr(cad_part, 'max_kerf') and cad_part.max_kerf is not None:
+                self.setting_frame.max_kerf_text.insert(1.0, str(cad_part.max_kerf))
+            if hasattr(cad_part, 'slice_axis') and cad_part.slice_axis is not None:
+                if cad_part.slice_axis == 0:
+                    self.setting_frame.primary_axis_var.set(1)
+                    self.setting_frame.check_primary()
+                elif cad_part.slice_axis == 1:
+                    self.setting_frame.secondary_axis_var.set(1)
+                    self.setting_frame.check_secondary()
+                elif cad_part.slice_axis == 2:
+                    self.setting_frame.tertiary_axis_var.set(1)
+                    self.setting_frame.check_tertiary()
+            if hasattr(cad_part, 'flip_axis') and cad_part.flip_axis is not None:
+                if cad_part.flip_axis:
+                    self.setting_frame.flip_axis_var.set(1)
+                    self.setting_frame.check_flip()
+            if hasattr(cad_part, 'open_nose') and cad_part.open_nose is not None:
+                if cad_part.open_nose:
+                    self.setting_frame.open_nose_var.set(1)
+                    self.setting_frame.check_open_nose()
+            if hasattr(cad_part, 'open_tail') and cad_part.open_tail is not None:
+                if cad_part.open_tail:
+                    self.setting_frame.open_tail_var.set(1)
+                    self.setting_frame.check_open_tail()
+            if hasattr(cad_part, 'hollow_list') and cad_part.hollow_list is not None:
+                self.setting_frame.advanced_hollow_cntrl_text.insert(1.0, cad_part.hollow_list)
+
+            self.stl_menu.configure(
+                values=self.get_file_options())
+
+            if cad_part.stl_tag is not None:
+                self.stl_menu.set(cad_part.stl_tag)
+            else:
+                self.stl_menu.set('')
+            if cad_part.units is not None:
+                self.unit_menu.set(cad_part.units)
+            else:
+                self.unit_menu.set('mm')
+            self.slice_frame.cnc_machine_option_menu.configure(
+                values=self.slice_frame.get_machine_options())
+            if cad_part.machine_tag is not None:
+                self.slice_frame.cnc_machine_option_menu.set(cad_part.machine_tag)
+            else:
+                self.slice_frame.cnc_machine_option_menu.set('')
+
+        return ret_val
 
     def get_curr_name(self):
-        raise NotImplementedError('get_curr_name not Implemented for WindowType: %s' % self.window_type)
+        ret_val = None
+        if self.curr_selected is not None:
+            ret_val = self.name_text.get(1.0, 'end-1c')
+        return ret_val
 
     def reset(self):
-        raise NotImplementedError('reset not Implemented for WindowType: %s' % self.window_type)
+        for cad_part in reversed(self.cad_parts):
+            tmp = cad_part
+            self.cad_parts.remove(tmp)
+            del tmp
+        del self.cad_parts
+        self.cad_parts = list()
+        self.curr_selected = None
+        self.update_gui(self.curr_selected)
 
     class WorkpieceWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -2730,9 +2896,10 @@ class CADWindow(EmbeddedWindow):
             self.settings_frame.grid(row=0, column=0, sticky=tk.NSEW,
                                      padx=PrimaryStyle.GENERAL_PADDING / 2,
                                      pady=(PrimaryStyle.GENERAL_PADDING / 2, 0))
-            self.settings_frame.grid_columnconfigure(index=0, weight=2)
-            self.settings_frame.grid_columnconfigure(index=1, weight=2)
-            self.settings_frame.grid_columnconfigure(index=2, weight=2)
+            self.settings_frame.grid_columnconfigure(index=0, weight=7)
+            self.settings_frame.grid_columnconfigure(index=1, weight=5)
+            self.settings_frame.grid_columnconfigure(index=2, weight=5)
+            self.settings_frame.grid_columnconfigure(index=3, weight=6)
             self.settings_frame.grid_rowconfigure(index=0, weight=1)
             self.settings_frame.grid_rowconfigure(index=1, weight=1)
             self.settings_frame.grid_rowconfigure(index=2, weight=1)
@@ -2758,7 +2925,7 @@ class CADWindow(EmbeddedWindow):
                                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                       fg=PrimaryStyle.FONT_COLOR)
-            self.wall_thickness_frame.grid(row=1, column=0, sticky=tk.NSEW,
+            self.wall_thickness_frame.grid(row=2, column=0, sticky=tk.NSEW,
                                            padx=PrimaryStyle.GENERAL_PADDING / 2,
                                            pady=PrimaryStyle.GENERAL_PADDING / 2)
             self.wall_thickness_frame.pack_propagate(False)
@@ -2773,7 +2940,7 @@ class CADWindow(EmbeddedWindow):
                                                    highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                    highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                    fg=PrimaryStyle.FONT_COLOR)
-            self.section_gap_frame.grid(row=2, column=0, sticky=tk.NSEW,
+            self.section_gap_frame.grid(row=1, column=0, sticky=tk.NSEW,
                                         padx=PrimaryStyle.GENERAL_PADDING / 2,
                                         pady=PrimaryStyle.GENERAL_PADDING / 2)
             self.section_gap_frame.pack_propagate(False)
@@ -2783,23 +2950,209 @@ class CADWindow(EmbeddedWindow):
                                                           PrimaryStyle.GENERAL_PADDING / 4),
                                        padx=PrimaryStyle.GENERAL_PADDING / 2)
 
+            self.kerf_frame = tk.LabelFrame(self.settings_frame, text='Kerf (mm):',
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+
+            self.kerf_frame.grid(row=1, column=1, sticky=tk.NSEW,
+                                 padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                 pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.kerf_frame.pack_propagate(False)
+
+            self.kerf_text = tk.Text(self.kerf_frame)
+            self.kerf_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                   PrimaryStyle.GENERAL_PADDING / 4),
+                                padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.max_kerf_frame = tk.LabelFrame(self.settings_frame, text='Max Kerf (mm):',
+                                                background=PrimaryStyle.SECONDARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                fg=PrimaryStyle.FONT_COLOR)
+            self.max_kerf_frame.grid(row=2, column=1, sticky=tk.NSEW,
+                                     padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                     pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.max_kerf_frame.pack_propagate(False)
+
+            self.max_kerf_text = tk.Text(self.max_kerf_frame)
+            self.max_kerf_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                       PrimaryStyle.GENERAL_PADDING / 4),
+                                    padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.num_points_frame = tk.LabelFrame(self.settings_frame, text='Num Points:',
+                                                  background=PrimaryStyle.SECONDARY_COLOR,
+                                                  highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                  highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                  fg=PrimaryStyle.FONT_COLOR)
+            self.num_points_frame.grid(row=0, column=1, sticky=tk.NSEW,
+                                       padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                       pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.num_points_frame.pack_propagate(False)
+
+            self.num_points_text = tk.Text(self.num_points_frame)
+            self.num_points_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                         PrimaryStyle.GENERAL_PADDING / 4),
+                                      padx=PrimaryStyle.GENERAL_PADDING / 2)
+
             self.hollow_cntrl_frame = tk.LabelFrame(self.settings_frame, text='Hollow Settings',
                                                     background=PrimaryStyle.SECONDARY_COLOR,
                                                     highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                     highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                     fg=PrimaryStyle.FONT_COLOR)
-            self.hollow_cntrl_frame.grid(row=0, column=1, rowspan=3, sticky=tk.NSEW,
+            self.hollow_cntrl_frame.grid(row=0, column=2, rowspan=5, sticky=tk.NSEW,
                                          padx=PrimaryStyle.GENERAL_PADDING / 2,
                                          pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.hollow_cntrl_frame.grid_rowconfigure(index=0, weight=1)
+            self.hollow_cntrl_frame.grid_rowconfigure(index=1, weight=1)
+            self.hollow_cntrl_frame.grid_rowconfigure(index=2, weight=18)
+            self.hollow_cntrl_frame.grid_columnconfigure(index=0, weight=1)
 
-            self.axis_cntrl_frame = tk.LabelFrame(self.settings_frame, text='Axis Control',
+            self.open_nose_var = tk.IntVar(self)
+            self.open_nose = tk.Checkbutton(self.hollow_cntrl_frame, text='Open Nose', onvalue=1, offvalue=0,
+                                            variable=self.open_nose_var, command=self.check_open_nose,
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+            self.open_nose.grid(row=0, column=0, sticky=tk.W)
+
+            self.open_tail_var = tk.IntVar(self)
+            self.open_tail = tk.Checkbutton(self.hollow_cntrl_frame, text='Open Tail', onvalue=1, offvalue=0,
+                                            variable=self.open_tail_var, command=self.check_open_tail,
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+            self.open_tail.grid(row=1, column=0, sticky=tk.W)
+
+            self.advanced_hollow_cntrl_frame = tk.LabelFrame(self.hollow_cntrl_frame, text='Advanced Hollow List:',
+                                                             background=PrimaryStyle.SECONDARY_COLOR,
+                                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                             fg=PrimaryStyle.FONT_COLOR)
+            self.advanced_hollow_cntrl_frame.grid(row=2, column=0, sticky=tk.NSEW,
+                                                  padx=PrimaryStyle.GENERAL_PADDING / 2,
+                                                  pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.advanced_hollow_cntrl_frame.pack_propagate(False)
+
+            self.advanced_hollow_cntrl_text = tk.Text(self.advanced_hollow_cntrl_frame)
+            self.advanced_hollow_cntrl_text.pack(expand=True, pady=(PrimaryStyle.GENERAL_PADDING / 4,
+                                                                    PrimaryStyle.GENERAL_PADDING / 4),
+                                                 padx=PrimaryStyle.GENERAL_PADDING / 2)
+
+            self.axis_cntrl_frame = tk.LabelFrame(self.settings_frame, text='Slice Axis Control',
                                                   background=PrimaryStyle.SECONDARY_COLOR,
                                                   highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                                   highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                   fg=PrimaryStyle.FONT_COLOR)
-            self.axis_cntrl_frame.grid(row=0, column=2, rowspan=3, sticky=tk.NSEW,
+            self.axis_cntrl_frame.grid(row=0, column=3, rowspan=5, sticky=tk.NSEW,
                                        padx=PrimaryStyle.GENERAL_PADDING / 2,
                                        pady=PrimaryStyle.GENERAL_PADDING / 2)
+            self.axis_cntrl_frame.grid_rowconfigure(index=0, weight=1)
+            self.axis_cntrl_frame.grid_rowconfigure(index=1, weight=1)
+            self.axis_cntrl_frame.grid_rowconfigure(index=2, weight=1)
+            self.axis_cntrl_frame.grid_rowconfigure(index=3, weight=1)
+            self.axis_cntrl_frame.grid_columnconfigure(index=0, weight=1)
+            self.axis_cntrl_frame.grid_propagate(False)
+
+            self.primary_axis_var = tk.IntVar(self)
+            self.primary_axis = tk.Checkbutton(self.axis_cntrl_frame, text='Primary Axis', onvalue=1, offvalue=0,
+                                               variable=self.primary_axis_var, command=self.check_primary,
+                                               background=PrimaryStyle.SECONDARY_COLOR,
+                                               selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                               highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                               highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                               fg=PrimaryStyle.FONT_COLOR)
+            self.primary_axis.grid(row=0, column=0, sticky=tk.W)
+            self.primary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+            self.primary_axis_var.set(1)
+
+            self.secondary_axis_var = tk.IntVar(self)
+            self.secondary_axis = tk.Checkbutton(self.axis_cntrl_frame, text='Secondary Axis', onvalue=1, offvalue=0,
+                                                 variable=self.secondary_axis_var, command=self.check_secondary,
+                                                 background=PrimaryStyle.SECONDARY_COLOR,
+                                                 selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                                 highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                 highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                 fg=PrimaryStyle.FONT_COLOR)
+            self.secondary_axis.grid(row=1, column=0, sticky=tk.W)
+
+            self.tertiary_axis_var = tk.IntVar(self)
+            self.tertiary_axis = tk.Checkbutton(self.axis_cntrl_frame, text='Tertiary Axis', onvalue=1, offvalue=0,
+                                                variable=self.tertiary_axis_var, command=self.check_tertiary,
+                                                background=PrimaryStyle.SECONDARY_COLOR,
+                                                selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                                highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                                highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                                fg=PrimaryStyle.FONT_COLOR)
+            self.tertiary_axis.grid(row=2, column=0, sticky=tk.W)
+
+            self.flip_axis_var = tk.IntVar(self)
+            self.flip_axis = tk.Checkbutton(self.axis_cntrl_frame, text='Flip Axis', onvalue=1, offvalue=0,
+                                            variable=self.flip_axis_var, command=self.check_flip,
+                                            background=PrimaryStyle.SECONDARY_COLOR,
+                                            selectcolor=PrimaryStyle.PRIMARY_COLOR,
+                                            highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                            highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
+                                            fg=PrimaryStyle.FONT_COLOR)
+            self.flip_axis.grid(row=3, column=0, sticky=tk.W)
+
+        def check_primary(self):
+            if self.primary_axis_var.get() == 1:
+                self.primary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.secondary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.tertiary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.secondary_axis_var.set(0)
+                self.tertiary_axis_var.set(0)
+            else:
+                self.primary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.primary_axis_var.set(1)
+
+        def check_secondary(self):
+            if self.secondary_axis_var.get() == 1:
+                self.secondary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.primary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.tertiary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.primary_axis_var.set(0)
+                self.tertiary_axis_var.set(0)
+            else:
+                self.secondary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.primary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.primary_axis_var.set(1)
+
+        def check_tertiary(self):
+            if self.tertiary_axis_var.get() == 1:
+                self.tertiary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.primary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.secondary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.primary_axis_var.set(0)
+                self.secondary_axis_var.set(0)
+            else:
+                self.tertiary_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+                self.primary_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+                self.primary_axis_var.set(1)
+
+        def check_flip(self):
+            if self.flip_axis_var.get() == 1:
+                self.flip_axis.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+            else:
+                self.flip_axis.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+
+        def check_open_nose(self):
+            if self.open_nose_var.get() == 1:
+                self.open_nose.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+            else:
+                self.open_nose.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
+
+        def check_open_tail(self):
+            if self.open_tail_var.get() == 1:
+                self.open_tail.configure(selectcolor=PrimaryStyle.TERTIARY_COLOR)
+            else:
+                self.open_tail.configure(selectcolor=PrimaryStyle.PRIMARY_COLOR)
 
     class SliceWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -2826,7 +3179,7 @@ class CADWindow(EmbeddedWindow):
                                                        highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS,
                                                        fg=PrimaryStyle.FONT_COLOR,
                                                        text='Select CNC Machine:')
-            self.sel_cnc_machine_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 2,
+            self.sel_cnc_machine_frame.grid(row=0, column=0, sticky=tk.NSEW, padx=(0, PrimaryStyle.GENERAL_PADDING / 2),
                                             pady=(PrimaryStyle.GENERAL_PADDING / 4, PrimaryStyle.GENERAL_PADDING / 2))
             self.sel_cnc_machine_frame.grid_propagate(False)
 
@@ -2842,52 +3195,183 @@ class CADWindow(EmbeddedWindow):
             self.slice_btn_frame = tk.Frame(self.slice_frame, background=PrimaryStyle.SECONDARY_COLOR,
                                             highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                             highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.slice_btn_frame.grid(row=0, column=2, sticky=tk.NSEW, padx=PrimaryStyle.GENERAL_PADDING / 4,
-                                      pady=PrimaryStyle.GENERAL_PADDING / 4)
+            self.slice_btn_frame.grid(row=0, column=2, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 0),
+                                      pady=(PrimaryStyle.GENERAL_PADDING / 4, 0))
             self.slice_btn_frame.grid_rowconfigure(index=0, weight=1)
             self.slice_btn_frame.grid_columnconfigure(index=0, weight=6)
             self.slice_btn_frame.grid_columnconfigure(index=1, weight=8)
             self.slice_btn_frame.grid_columnconfigure(index=2, weight=8)
             self.slice_btn_frame.grid_propagate(False)
 
-            self.preview_btn = tk.Button(self.slice_btn_frame, text='Preview\nSelected', command=self.preview_selected)
+            self.preview_btn = tk.Button(self.slice_btn_frame, text='Preview\nSelected',
+                                         command=create_thread_callback(self.preview_selected))
             self.preview_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
-                                  pady=PrimaryStyle.GENERAL_PADDING / 4)
+                                  pady=(PrimaryStyle.GENERAL_PADDING / 4, 0))
 
-            self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected', command=self.slice_selected)
+            self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected',
+                                       command=create_thread_callback(self.slice_selected))
             self.slice_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
-                                pady=PrimaryStyle.GENERAL_PADDING / 4)
+                                pady=(PrimaryStyle.GENERAL_PADDING / 4, 0))
 
-            self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll', command=self.slice_all)
-            self.slice_all_btn.grid(row=0, column=2, sticky=tk.NSEW, padx=(1, PrimaryStyle.GENERAL_PADDING / 4),
-                                    pady=PrimaryStyle.GENERAL_PADDING / 4)
+            self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll',
+                                           command=create_thread_callback(self.slice_all))
+            self.slice_all_btn.grid(row=0, column=2, sticky=tk.NSEW, padx=(1, 0),
+                                    pady=(PrimaryStyle.GENERAL_PADDING / 4, 0))
 
         def preview_selected(self):
-            tmp_wire_cutter = wc.WireCutter(name='tmp', wire_length=245, max_height=300, max_depth=600,
-                                            max_speed=120, min_speed=50,
-                 feed_rate_mode=94, axis_def='X{:.6f} Y{:.6f} U{:.6f} Z{:.6f}',
-                 dynamic_tension=False)
             self.root.root.progress_bar.start()
-            thread = ProcessThread(target=sm.SliceManager.stl_precondition,
-                                   kwargs={'stl_path': r'./assets/STLs/Fuselage_NebulaV2.stl',
-                                           'logger': self.root.root.logger, 'units': 'mm',
-                                           'output_dir': r'./assets/GCode',
-                                           'work_piece': prim.WorkPiece(300, 200, 35),
-                                           'hollow_section_list': None, 'open_nose': False,
-                                           'open_tail': True, 'wall_thickness':10, 'name':'Nebula', 'subdivisions':3,
-                                           'wire_cutter':tmp_wire_cutter, 'flip_axis':False})
 
-            cross_section_list = thread.run()
-            self.root.stl_prev_window_label_frame.configure(text='Slice Preview: %s Sections' % len(cross_section_list))
+            name = self.root.name_text.get(1.0, 'end-1c')
+            stl_path = self.root.root.curr_project.database.cad_files[self.root.stl_menu.get()]
+            logger = self.root.logger
+            output_dir = self.root.root.curr_project.output_dir
+            units = self.root.unit_menu.get()
+            length = get_float(self.root.workpiece_frame.length_text.get(1.0, 'end-1c'))
+            height = get_float(self.root.workpiece_frame.height_text.get(1.0, 'end-1c'))
+            thickness = get_float(self.root.workpiece_frame.thickness_text.get(1.0, 'end-1c'))
+            workpiece = prim.WorkPiece(length, height, thickness)
+            hollow_section_list = self._parse_hollow_list(
+                self.root.setting_frame.advanced_hollow_cntrl_text.get(1.0, 'end-1c'))
+            open_nose = True if self.root.setting_frame.open_nose_var.get() == 1 else False
+            open_tail = True if self.root.setting_frame.open_tail_var.get() == 1 else False
+            wall_thickness = get_float(self.root.setting_frame.wall_thickness_text.get(1.0, 'end-1c'))
+            subdivisions = int(get_float(self.root.setting_frame.subdivision_text.get(1.0, 'end-1c')))
+            flip_axis = True if self.root.setting_frame.flip_axis_var.get() == 1 else False
+            slice_axis = 0
+            if self.root.setting_frame.secondary_axis_var.get() == 1:
+                slice_axis = 1
+            elif self.root.setting_frame.tertiary_axis_var.get() == 1:
+                slice_axis = 2
+
+            machine = self.root.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(
+                self.cnc_machine_option_menu.get())
+
+            num_points = int(get_float(self.root.setting_frame.num_points_text.get(1.0, 'end-1c')))
+
+            start_time = timeit.default_timer()
+            cross_section_list = sm.SliceManager.stl_precondition(stl_path=stl_path, logger=logger, units=units,
+                                                                  output_dir=output_dir, work_piece=workpiece,
+                                                                  hollow_section_list=hollow_section_list,
+                                                                  open_nose=open_nose, open_tail=open_tail,
+                                                                  wall_thickness=wall_thickness, name=name,
+                                                                  subdivisions=subdivisions,
+                                                                  wire_cutter=machine,
+                                                                  flip_axis=flip_axis, slice_axis=slice_axis,
+                                                                  num_points=num_points)
+            logger.debug('Preview runtime %ss with %s point resolution', (timeit.default_timer() - start_time),
+                         num_points)
             self.root.stl_prev_window_label_frame.update()
             self.root.stl_prev_window.add_plots(cross_section_list)
             self.root.root.progress_bar.stop()
 
         def slice_selected(self):
-            pass
+            self.root.root.progress_bar.start()
+
+            name = self.root.name_text.get(1.0, 'end-1c')
+            stl_path = self.root.root.curr_project.database.cad_files[self.root.stl_menu.get()]
+            output_dir = self.root.root.curr_project.output_dir
+            units = self.root.unit_menu.get()
+            length = get_float(self.root.workpiece_frame.length_text.get(1.0, 'end-1c'))
+            height = get_float(self.root.workpiece_frame.height_text.get(1.0, 'end-1c'))
+            thickness = get_float(self.root.workpiece_frame.thickness_text.get(1.0, 'end-1c'))
+            workpiece = prim.WorkPiece(length, height, thickness)
+            hollow_section_list = self._parse_hollow_list(
+                self.root.setting_frame.advanced_hollow_cntrl_text.get(1.0, 'end-1c'))
+            open_nose = True if self.root.setting_frame.open_nose_var.get() == 1 else False
+            open_tail = True if self.root.setting_frame.open_tail_var.get() == 1 else False
+            wall_thickness = get_float(self.root.setting_frame.wall_thickness_text.get(1.0, 'end-1c'))
+            subdivisions = int(get_float(self.root.setting_frame.subdivision_text.get(1.0, 'end-1c')))
+            section_gap = get_float(self.root.setting_frame.section_gap_text.get(1.0, 'end-1c'))
+            flip_axis = True if self.root.setting_frame.flip_axis_var.get() == 1 else False
+            slice_axis = 0
+            if self.root.setting_frame.secondary_axis_var.get() == 1:
+                slice_axis = 1
+            elif self.root.setting_frame.tertiary_axis_var.get() == 1:
+                slice_axis = 2
+
+            kerf = get_float(self.root.setting_frame.kerf_text.get(1.0, 'end-1c'))
+            max_kerf = get_float(self.root.setting_frame.max_kerf_text.get(1.0, 'end-1c'))
+
+            machine = self.root.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(
+                self.cnc_machine_option_menu.get())
+            machine.set_kerf(kerf, max_kerf)
+
+            num_points = int(get_float(self.root.setting_frame.num_points_text.get(1.0, 'end-1c')))
+
+            try:
+                cross_section_list = sm.SliceManager.stl_to_gcode(stl_path=stl_path, units=units,
+                                                                  output_dir=output_dir, work_piece=workpiece,
+                                                                  hollow_section_list=hollow_section_list,
+                                                                  open_nose=open_nose, open_tail=open_tail,
+                                                                  wall_thickness=wall_thickness, name=name,
+                                                                  subdivisions=subdivisions, section_gap=section_gap,
+                                                                  wire_cutter=machine,
+                                                                  flip_axis=flip_axis, slice_axis=slice_axis,
+                                                                  num_points=num_points)
+                self.root.stl_prev_window_label_frame.update()
+                self.root.stl_prev_window.add_plots(cross_section_list)
+            except ValueError:
+                pass  # TODO create a warning pop-up window
+
+            self.root.root.progress_bar.stop()
 
         def slice_all(self):
-            pass
+            self.root.save_settings()
+            for cad_part in self.root.cad_parts:
+                self.root.root.progress_bar.start()
+
+                name = cad_part.anme
+                stl_path = self.root.root.curr_project.database.cad_files[cad_part.stl_tag]
+                output_dir = self.root.root.curr_project.output_dir
+                units = cad_part.units
+                length = cad_part.wp_length
+                height = cad_part.wp_height
+                thickness = cad_part.wp_thickness
+                workpiece = prim.WorkPiece(length, height, thickness)
+                hollow_section_list = self._parse_hollow_list(cad_part.hollow_list)
+                open_nose = cad_part.open_nose
+                open_tail = cad_part.open_tail
+                wall_thickness = cad_part.wall_thickness
+                subdivisions = cad_part.subdivisions
+                section_gap = cad_part.section_gap
+                flip_axis = cad_part.flip_axis
+
+                machine = self.root.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(
+                    cad_part.machine_tag)
+
+                num_points = cad_part.num_points
+
+                cross_section_list = sm.SliceManager.stl_to_gcode(stl_path=stl_path, units=units,
+                                                                  output_dir=output_dir, work_piece=workpiece,
+                                                                  hollow_section_list=hollow_section_list,
+                                                                  open_nose=open_nose, open_tail=open_tail,
+                                                                  wall_thickness=wall_thickness, name=name,
+                                                                  subdivisions=subdivisions, section_gap=section_gap,
+                                                                  wire_cutter=machine,
+                                                                  flip_axis=flip_axis, num_points=num_points)
+                self.root.stl_prev_window_label_frame.update()
+                self.root.stl_prev_window.add_plots(cross_section_list)
+                self.root.root.progress_bar.stop()
+
+        def get_machine_options(self):
+            machines = list()
+            for machine in self.root.root.get_window_instance(window=WindowState.MACHINE_SETUP).machines:
+                machines.append(machine.name)
+            return machines
+
+        def _parse_hollow_list(self, hollow_list_text):
+            """
+
+            :params tr hollow_list_text:
+            :return:
+            """
+            hollow_section_list = None
+            if len(hollow_list_text) > 0:
+                hollow_section_list = list()
+                splits = hollow_list_text.split(',')
+                for split in splits:
+                    hollow_section_list.append(int(split))
+            return hollow_section_list
 
     class STLPreviewWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -2904,7 +3388,7 @@ class CADWindow(EmbeddedWindow):
             self.canvas_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
                                          highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                          highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
-            self.canvas_frame.grid(row=0, column=0, sticky=tk.NSEW,)
+            self.canvas_frame.grid(row=0, column=0, sticky=tk.NSEW, )
             self.canvas_frame.grid_rowconfigure(index=0, weight=59)
             self.canvas_frame.grid_rowconfigure(index=1, weight=1)
             self.canvas_frame.grid_columnconfigure(index=0, weight=1)
@@ -2921,7 +3405,7 @@ class CADWindow(EmbeddedWindow):
                                           background=PrimaryStyle.PRIMARY_COLOR)
             self.primary_canvas.update()
             self.block_size = self.primary_canvas.winfo_reqheight()
-            self.primary_canvas.create_window(0, self.block_size/2, window=self.scroll_window, anchor=tk.W)
+            self.primary_canvas.create_window(0, 0, window=self.scroll_window, anchor=tk.NW)
 
             self.h_scroll_bar = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL, command=self.primary_canvas.xview,
                                              bg=PrimaryStyle.PRIMARY_COLOR, width=11)
@@ -2958,25 +3442,33 @@ class CADWindow(EmbeddedWindow):
         def add_plots(self, cross_sections):
             self.delete_plots()
             for cross_section in cross_sections:
-                self.primary_canvas.update()
+                # self.primary_canvas.update()
                 self.plots.append(PlotWindow(self.scroll_window, self, width=self.block_size,
                                              height=self.block_size,
                                              background=PrimaryStyle.PRIMARY_COLOR,
                                              highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
                                              highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS))
 
-                self.plots[-1].pack(side=tk.LEFT, fill=None, anchor=tk.CENTER)
-                self.plots[-1].plot(callback=cross_section.plot_gui(PrimaryStyle.FONT_COLOR, PrimaryStyle.TETRARY_COLOR,
-                                                                    PrimaryStyle.QUATERNARY_COLOR))
+                self.plots[-1].pack(side=tk.LEFT, fill=None, anchor=tk.NW)
+                self.plots[-1].plot(
+                    callback=cross_section.plot_gui(PrimaryStyle.FONT_COLOR, PrimaryStyle.TERTIARY_COLOR,
+                                                    PrimaryStyle.QUATERNARY_COLOR))
                 self.plots[-1].update()
+
+            self.root.stl_prev_label_frame_text.set('Slice Preview: %s Sections' % len(cross_sections))
+            self.root.stl_prev_window_label_frame.configure(text=self.root.stl_prev_label_frame_text.get())
+
             self.scroll_window.update()
             self.root.stl_prev_window_label_frame.update()
 
         def delete_plots(self):
+            for plot in reversed(self.plots):
+                plot.pack_forget()
+                del plot
             del self.plots
             self.plots = list()
-
-            self.root.stl_prev_window_label_frame.configure(text='Slice Preview:')
+            self.root.stl_prev_label_frame_text.set('Slice Preview:')
+            self.root.stl_prev_window_label_frame.config(text=self.root.stl_prev_label_frame_text.get())
             self.root.stl_prev_window_label_frame.update()
             self.update()
 
