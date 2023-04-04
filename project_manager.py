@@ -12,26 +12,38 @@ class ProjectManager(object):
     def __init__(self, ini_file):
         self.ini_file = ini_file
         self.recent_projects = dict()
+        self.program_airfoil_dirs = [wire_slicer.DEFAULT_AIRFOIL_PATH]
+        self.program_cad_dirs = [wire_slicer.DEFAULT_CAD_PATH]
         self.ini_data = None
-        self.load_recent_projects()
 
-    def load_recent_projects(self):
+        self.cad_files = dict()
+        self.airfoils = dict()
+
+        self.load_project_manager()
+
+    def load_project_manager(self):
         if os.path.exists(self.ini_file):
             with open(self.ini_file, 'rt') as json_file:
                 json_text = json_file.read()
-            self.recent_projects = json.JSONDecoder().decode(s=json_text)
+            data = json.JSONDecoder().decode(s=json_text)
+            self.recent_projects = data.get('projects', dict())
+            self.program_airfoil_dirs = data.get('program_airfoils', list())
+            self.program_cad_dirs = data.get('program_cad', list())
+        self._load_from_directories()
 
     def save_ini_file(self):
         with open(self.ini_file, 'wt') as json_file:
-            json_file.write(json.JSONEncoder().encode(self.recent_projects))
+            json_file.write(json.JSONEncoder().encode({'projects': self.recent_projects,
+                                                       'program_airfoils': self.program_airfoil_dirs,
+                                                       'program_cad': self.program_cad_dirs}))
 
     def get_recent_projects(self):
         recent_project_list = list()
-        for key, item in self.recent_projects.items():
-            recent_project_list.append((key, item))
+        if self.recent_projects is not None:
+            for key, item in self.recent_projects.items():
+                recent_project_list.append((key, item))
 
         return recent_project_list
-
 
     def default_project(self):
         return Project(r'./', 'Default')
@@ -42,6 +54,43 @@ class ProjectManager(object):
         """
         if project.name not in self.recent_projects.keys():
             self.recent_projects[project.name] = project.file_path
+
+    def _load_from_directories(self):
+        for directory in self.program_airfoil_dirs:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    if file.endswith(".dat"):
+                        name = file[:-4]
+                        self.airfoils[name] = sm.PointManip.reorder_2d_cw(
+                            gp.Dat(filepath=os.path.join(directory, file)).get_data(), method=7)
+
+        for directory in self.program_cad_dirs:
+            if os.path.exists(directory):
+                for file in os.listdir(directory):
+                    if file.endswith(".stl"):
+                        name = file[:-4]
+                        self.cad_files[name] = os.path.join(directory, file)
+                    elif file.endswith(".obj"):
+                        name = file[:-4]
+                        self.cad_files[name] = os.path.join(directory, file)
+
+    def add_new_cad_directory(self, directory):
+        self.program_cad_dirs.append(directory)
+        for file in os.listdir(directory):
+            if file.endswith(".stl"):
+                name = file[:-4]
+                self.cad_files[name] = os.path.join(directory, file)
+            elif file.endswith(".obj"):
+                name = file[:-4]
+                self.cad_files[name] = os.path.join(directory, file)
+
+    def add_new_airfoil_directory(self, directory):
+        self.program_airfoil_dirs.append(directory)
+        for file in os.listdir(directory):
+            if file.endswith(".dat"):
+                name = file[:-4]
+                self.airfoils[name] = sm.PointManip.reorder_2d_cw(
+                    gp.Dat(filepath=os.path.join(directory, file)).get_data(), method=7)
 
 
 class Project(object):
@@ -68,15 +117,26 @@ class Project(object):
 
 class PartDatabase(object):
     def __init__(self):
-        self.directory_paths = [wire_slicer.DEFAULT_AIRFOIL_PATH, wire_slicer.DEFAULT_CAD_PATH]
+        self.airfoil_directory_paths = list()
+        self.cad_directory_paths = list()
         self.individual_file_paths = list()
         self.airfoils = dict()
         self.cad_files = dict()
 
         self._load_from_directories()
 
-    def add_new_directory(self, directory):
+    @property
+    def directory_paths(self):
+        return self.airfoil_directory_paths + self.cad_directory_paths
+
+    def add_new_airfoil_directory(self, directory):
         self.directory_paths.append(directory)
+        self.airfoil_directory_paths.append(directory)
+        self._load_from_new_directory()
+
+    def add_new_cad_directory(self, directory):
+        self.directory_paths.append(directory)
+        self.cad_directory_paths.append(directory)
         self._load_from_new_directory()
 
     def add_file(self, file_path):
@@ -93,10 +153,10 @@ class PartDatabase(object):
                             gp.Dat(filepath=os.path.join(directory, file)).get_data(), method=7)
                     elif file.endswith(".stl"):
                         name = file[:-4]
-                        self.cad_files[name] = os.path.join(self.directory_paths[-1], file)
+                        self.cad_files[name] = os.path.join(directory, file)
                     elif file.endswith(".obj"):
                         name = file[:-4]
-                        self.cad_files[name] = os.path.join(self.directory_paths[-1], file)
+                        self.cad_files[name] = os.path.join(directory, file)
 
     def _load_from_new_directory(self):
         for file in os.listdir(self.directory_paths[-1]):

@@ -6,10 +6,8 @@ import timeit
 import tkinter as tk
 import tkinter.filedialog as filedialog
 import tkinter.ttk as ttk
-from textwrap import dedent
 import webbrowser
 
-import git
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -421,6 +419,7 @@ class MainWindow(tk.Tk):
         self.embedded_windows[WindowState.MACHINE_SETUP].machines = copy.deepcopy(self.curr_project.machines)
         self.embedded_windows[WindowState.CAD].update_from_project()
         self.embedded_windows[WindowState.CAD].cad_parts = copy.deepcopy(self.curr_project.cad_parts)
+        self.embedded_windows[WindowState.DATABASE].update_from_project()
 
         self.project_manager.update_project_list(self.curr_project)
 
@@ -494,8 +493,6 @@ class HomeWindow(EmbeddedWindow):
     def __init__(self, master, root):
         super(HomeWindow, self).__init__(master, WindowState.HOME, root)
 
-        self.repo = git.Git(r'https://github.com/fureter/WireSlicerPy')
-
         self.grid_columnconfigure(index=0, weight=5)
         self.grid_columnconfigure(index=1, weight=1)
         self.grid_rowconfigure(index=0, weight=1)
@@ -564,7 +561,7 @@ class HomeWindow(EmbeddedWindow):
 
         self.news_box = tk.Text(self.left_bot_frame, background=PrimaryStyle.SECONDARY_COLOR, width=0,
                                 fg=PrimaryStyle.FONT_COLOR)
-        log = dedent(self.repo.log()).replace("    ", "")
+        log = "TODO: Change log"
         self.news_box.insert('end', log)
         self.news_box.config(wrap=tk.WORD)
         self.news_box.pack(fill=tk.BOTH, anchor=tk.NW, expand=True)
@@ -1446,7 +1443,16 @@ class WingWindow(EmbeddedWindow):
         def get_airfoil_options(self):
             airfoils = list()
             airfoils.extend(self.root.main_window.curr_project.database.airfoils.keys())
+            airfoils.extend(self.root.main_window.project_manager.airfoils.keys())
             return airfoils
+
+        def get_airfoil_data(self, key):
+            ret_val = None
+            if key in self.root.main_window.curr_project.database.airfoils:
+                ret_val = self.root.main_window.curr_project.database.airfoils[key]
+            elif key in self.root.main_window.project_manager.airfoils:
+                ret_val = self.root.main_window.project_manager.airfoils[key]
+            return ret_val
 
         def plot_airfoil(self, event):
             print(event)
@@ -1478,8 +1484,7 @@ class WingWindow(EmbeddedWindow):
                     line.set_markeredgewidth(8)
 
                 airfoil = gp.Dat(
-                    data=self._transform_airfoil(
-                        self.root.main_window.curr_project.database.airfoils[airfoil_selection]))
+                    data=self._transform_airfoil(self.get_airfoil_data(airfoil_selection)))
                 airfoil.plot_points_2d_gui(plot_1, PrimaryStyle.FONT_COLOR, PrimaryStyle.TERTIARY_COLOR)
 
                 holes = self.root.wings[self.root.curr_selected].root_holes if self.position == 0 else self.root.wings[
@@ -1538,7 +1543,7 @@ class WingWindow(EmbeddedWindow):
 
             chord_offset = hole.chord_start * chord
             airfoil_selection = self.airfoil_option_menu.get()
-            airfoil = copy.deepcopy(self.root.main_window.curr_project.database.airfoils[airfoil_selection])
+            airfoil = copy.deepcopy(self.get_airfoil_data(airfoil_selection))
             spm.PointManip.Transform.scale(airfoil, [chord, chord, 1])
             point_1, point_2 = prim.GeometricFunctions.get_points_with_chord_offset(airfoil, chord_offset)
             if point_1['y'] > point_2['y']:
@@ -2270,10 +2275,10 @@ class WingWindow(EmbeddedWindow):
 
                     root_foil = self.root.root.top_airfoil_frame.airfoil_option_menu.get()
                     root_foil = copy.deepcopy(
-                        self.root.root.root.curr_project.database.airfoils[root_foil]) if root_foil != '' else None
+                        self.root.root.top_airfoil_frame.get_airfoil_data(root_foil)) if root_foil != '' else None
                     tip_foil = self.root.root.bot_airfoil_frame.airfoil_option_menu.get()
                     tip_foil = copy.deepcopy(
-                        self.root.root.root.curr_project.database.airfoils[tip_foil]) if tip_foil != '' else None
+                        self.root.root.bot_airfoil_frame.get_airfoil_data(tip_foil)) if tip_foil != '' else None
 
                     if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
                         curr_wing.add_hole_root(cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
@@ -2332,11 +2337,9 @@ class WingWindow(EmbeddedWindow):
             wing.tip_airfoil_tag = self.bot_airfoil_frame.airfoil_option_menu.get()
             wing.root_airfoil_tag = self.top_airfoil_frame.airfoil_option_menu.get()
             if wing.tip_airfoil_tag != 'Select Airfoil':
-                wing.tip_airfoil = copy.deepcopy(
-                    self.root.curr_project.database.airfoils[wing.tip_airfoil_tag])
+                wing.tip_airfoil = copy.deepcopy(self.bot_airfoil_frame.get_airfoil_data(wing.tip_airfoil_tag))
             if wing.root_airfoil_tag != 'Select Airfoil':
-                wing.root_airfoil = copy.deepcopy(
-                    self.root.curr_project.database.airfoils[wing.root_airfoil_tag])
+                wing.root_airfoil = copy.deepcopy(self.top_airfoil_frame.get_airfoil_data(wing.root_airfoil_tag))
 
             wing.symmetric = True if self.wing_setting_frame.gen_lr_var.get() == 1 else False
             wing.align_with_le = True if self.wing_setting_frame.align_led_var.get() == 1 else False
@@ -2438,6 +2441,7 @@ class WingWindow(EmbeddedWindow):
         for item in self.wings:
             names.append(item.name)
         self.scroll_frame.update_from_list(names)
+        self.update_airfoil_options()
 
     def reset(self):
         for wing in reversed(self.wings):
@@ -2463,6 +2467,11 @@ class WingWindow(EmbeddedWindow):
             machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
             sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
         self.curr_selected = orig_sel
+
+    def update_airfoil_options(self):
+        options = self.top_airfoil_frame.get_airfoil_options()
+        self.top_airfoil_frame.airfoil_option_menu['values'] = options
+        self.bot_airfoil_frame.airfoil_option_menu['values'] = options
 
 
 class CADWindow(EmbeddedWindow):
@@ -2678,10 +2687,10 @@ class CADWindow(EmbeddedWindow):
             cad_part.wp_length = get_float(tmp_wp_length)
             cad_part.wp_height = get_float(tmp_wp_height)
             cad_part.wp_thickness = get_float(tmp_wp_thickness)
-            cad_part.subdivisions = int(get_float(tmp_subdivisions))
+            cad_part.subdivisions = get_int(tmp_subdivisions)
             cad_part.wall_thickness = get_float(tmp_wall_thickness)
             cad_part.section_gap = get_float(tmp_section_gap)
-            cad_part.num_points = int(get_float(num_points))
+            cad_part.num_points = get_int(num_points)
             cad_part.kerf = get_float(tmp_kerf)
             cad_part.max_kerf = get_float(tmp_max_kerf)
             cad_part.slice_axis = tmp_axis
@@ -3474,11 +3483,292 @@ class CADWindow(EmbeddedWindow):
 
 
 class DatabaseWindow(EmbeddedWindow):
+    SMALL_WEIGHT = 1
+    LARGE_WEIGHT = 10
+
+    class CATEGORIES(object):
+        PROGRAM_AIRFOILS = 0
+        PROGRAM_CAD = 1
+        PROJECT_AIRFOILS = 2
+        PROJECT_CAD = 3
+
     def __init__(self, master, root):
         super(DatabaseWindow, self).__init__(master, WindowState.DATABASE, root)
 
-        self.label = ttk.Label(master=self, text='Database')
-        self.label.grid()
+        self.grid_columnconfigure(index=0, weight=self.SMALL_WEIGHT)
+        self.grid_columnconfigure(index=1, weight=self.LARGE_WEIGHT)
+        self.grid_columnconfigure(index=2, weight=self.SMALL_WEIGHT)
+        self.grid_columnconfigure(index=3, weight=self.LARGE_WEIGHT)
+        self.grid_columnconfigure(index=4, weight=self.SMALL_WEIGHT)
+
+        self.grid_rowconfigure(index=0, weight=self.SMALL_WEIGHT)
+        self.grid_rowconfigure(index=1, weight=self.LARGE_WEIGHT)
+        self.grid_rowconfigure(index=2, weight=self.SMALL_WEIGHT)
+        self.grid_rowconfigure(index=3, weight=self.LARGE_WEIGHT)
+        self.grid_rowconfigure(index=4, weight=self.SMALL_WEIGHT)
+        self.grid_propagate(False)
+
+        self.prog_airfoil_list = self.root.project_manager.program_airfoil_dirs
+        self.prog_airfoil_var = tk.StringVar(value=self.prog_airfoil_list)
+
+        self.prog_cad_list = self.root.project_manager.program_cad_dirs
+        self.prog_cad_var = tk.StringVar(value=self.prog_cad_list)
+
+        self.proj_airfoil_list = self.root.curr_project.database.directory_paths
+        self.proj_airfoil_var = tk.StringVar(value=self.proj_airfoil_list)
+
+        self.proj_cad_list = self.root.curr_project.database.directory_paths
+        self.proj_cad_var = tk.StringVar(value=self.proj_cad_list)
+
+        # ==============================================================================================================
+        # Program Airfoils
+        self.prog_airfoil_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                           highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                           highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.prog_airfoil_frame.grid(row=1, column=1, sticky=tk.NSEW)
+        self.prog_airfoil_frame.grid_rowconfigure(index=0, weight=1)
+        self.prog_airfoil_frame.grid_rowconfigure(index=1, weight=18)
+        self.prog_airfoil_frame.grid_rowconfigure(index=2, weight=1)
+        self.prog_airfoil_frame.grid_columnconfigure(index=0, weight=1)
+        self.prog_airfoil_frame.grid_columnconfigure(index=1, weight=1)
+
+        self.prog_airfoil_label = tk.Label(self.prog_airfoil_frame, text='Program Airfoils:',
+                                           bg=PrimaryStyle.TERTIARY_COLOR,
+                                           fg=PrimaryStyle.FONT_COLOR,
+                                           borderwidth=1, relief=tk.SOLID)
+        self.prog_airfoil_label.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+        self.prog_airfoils = tk.Listbox(self.prog_airfoil_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        listvariable=self.prog_airfoil_var,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.prog_airfoils.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+
+        self.add_frame_pga = tk.Frame(self.prog_airfoil_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.add_frame_pga.grid(row=2, column=0, sticky=tk.NSEW)
+        self.add_frame_pga.grid_rowconfigure(index=0, weight=1)
+        self.add_frame_pga.grid_columnconfigure(index=0, weight=1)
+
+        self.add_button_pga = tk.Button(self.add_frame_pga, text='Add',
+                                        command=lambda: self._add_selection(self.CATEGORIES.PROGRAM_AIRFOILS),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.add_button_pga.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.del_frame_pga = tk.Frame(self.prog_airfoil_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.del_frame_pga.grid(row=2, column=1, sticky=tk.NSEW)
+        self.del_frame_pga.grid_rowconfigure(index=0, weight=1)
+        self.del_frame_pga.grid_columnconfigure(index=0, weight=1)
+
+        self.del_button_pga = tk.Button(self.del_frame_pga, text='Delete',
+                                        command=lambda: self._delete_selection(self.CATEGORIES.PROGRAM_AIRFOILS),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.del_button_pga.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # ==============================================================================================================
+        # Program CAD Files
+        self.prog_cad_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.prog_cad_frame.grid(row=3, column=1, sticky=tk.NSEW)
+        self.prog_cad_frame.grid_rowconfigure(index=0, weight=1)
+        self.prog_cad_frame.grid_rowconfigure(index=1, weight=18)
+        self.prog_cad_frame.grid_rowconfigure(index=2, weight=1)
+        self.prog_cad_frame.grid_columnconfigure(index=0, weight=1)
+        self.prog_cad_frame.grid_columnconfigure(index=1, weight=1)
+
+        self.prog_cad_label = tk.Label(self.prog_cad_frame, text='Program Cad Files:',
+                                       bg=PrimaryStyle.TERTIARY_COLOR,
+                                       fg=PrimaryStyle.FONT_COLOR,
+                                       borderwidth=1, relief=tk.SOLID)
+        self.prog_cad_label.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+        self.prog_cads = tk.Listbox(self.prog_cad_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                    listvariable=self.prog_cad_var,
+                                    fg=PrimaryStyle.FONT_COLOR)
+        self.prog_cads.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+
+        self.add_frame_pgc = tk.Frame(self.prog_cad_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.add_frame_pgc.grid(row=2, column=0, sticky=tk.NSEW)
+        self.add_frame_pgc.grid_rowconfigure(index=0, weight=1)
+        self.add_frame_pgc.grid_columnconfigure(index=0, weight=1)
+
+        self.add_button_pgc = tk.Button(self.add_frame_pgc, text='Add',
+                                        command=lambda: self._add_selection(self.CATEGORIES.PROGRAM_CAD),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.add_button_pgc.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.del_frame_pgc = tk.Frame(self.prog_cad_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.del_frame_pgc.grid(row=2, column=1, sticky=tk.NSEW)
+        self.del_frame_pgc.grid_rowconfigure(index=0, weight=1)
+        self.del_frame_pgc.grid_columnconfigure(index=0, weight=1)
+
+        self.del_button_pgc = tk.Button(self.del_frame_pgc, text='Delete',
+                                        command=lambda: self._delete_selection(self.CATEGORIES.PROGRAM_CAD),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.del_button_pgc.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # ==============================================================================================================
+        # Project Airfoils
+        self.proj_airfoil_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                           highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                           highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.proj_airfoil_frame.grid(row=1, column=3, sticky=tk.NSEW)
+        self.proj_airfoil_frame.grid_rowconfigure(index=0, weight=1)
+        self.proj_airfoil_frame.grid_rowconfigure(index=1, weight=18)
+        self.proj_airfoil_frame.grid_rowconfigure(index=2, weight=1)
+        self.proj_airfoil_frame.grid_columnconfigure(index=0, weight=1)
+        self.proj_airfoil_frame.grid_columnconfigure(index=1, weight=1)
+
+        self.proj_airfoil_label = tk.Label(self.proj_airfoil_frame, text='Project Airfoils:',
+                                           bg=PrimaryStyle.TERTIARY_COLOR,
+                                           fg=PrimaryStyle.FONT_COLOR,
+                                           borderwidth=1, relief=tk.SOLID)
+        self.proj_airfoil_label.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+        self.proj_airfoils = tk.Listbox(self.proj_airfoil_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                        listvariable=self.proj_airfoil_var,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.proj_airfoils.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+
+        self.add_frame_pja = tk.Frame(self.proj_airfoil_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.add_frame_pja.grid(row=2, column=0, sticky=tk.NSEW)
+        self.add_frame_pja.grid_rowconfigure(index=0, weight=1)
+        self.add_frame_pja.grid_columnconfigure(index=0, weight=1)
+
+        self.add_button_pja = tk.Button(self.add_frame_pja, text='Add',
+                                        command=lambda: self._add_selection(self.CATEGORIES.PROJECT_AIRFOILS),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.add_button_pja.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.del_frame_pja = tk.Frame(self.proj_airfoil_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.del_frame_pja.grid(row=2, column=1, sticky=tk.NSEW)
+        self.del_frame_pja.grid_rowconfigure(index=0, weight=1)
+        self.del_frame_pja.grid_columnconfigure(index=0, weight=1)
+
+        self.del_button_pja = tk.Button(self.del_frame_pja, text='Delete',
+                                        command=lambda: self._delete_selection(self.CATEGORIES.PROJECT_AIRFOILS),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.del_button_pja.grid(row=0, column=0, sticky=tk.NSEW)
+
+        # ==============================================================================================================
+        # Project CAD Files
+        self.proj_cad_frame = tk.Frame(self, background=PrimaryStyle.PRIMARY_COLOR,
+                                       highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                       highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.proj_cad_frame.grid(row=3, column=3, sticky=tk.NSEW)
+        self.proj_cad_frame.grid_rowconfigure(index=0, weight=1)
+        self.proj_cad_frame.grid_rowconfigure(index=1, weight=18)
+        self.proj_cad_frame.grid_rowconfigure(index=2, weight=1)
+        self.proj_cad_frame.grid_columnconfigure(index=0, weight=1)
+        self.proj_cad_frame.grid_columnconfigure(index=1, weight=1)
+
+        self.proj_cad_label = tk.Label(self.proj_cad_frame, text='Project Cad Files:',
+                                       bg=PrimaryStyle.TERTIARY_COLOR,
+                                       fg=PrimaryStyle.FONT_COLOR,
+                                       borderwidth=1, relief=tk.SOLID)
+        self.proj_cad_label.grid(row=0, column=0, columnspan=2, sticky=tk.NSEW)
+        self.proj_cads = tk.Listbox(self.proj_cad_frame, background=PrimaryStyle.SECONDARY_COLOR,
+                                    listvariable=self.proj_cad_var,
+                                    fg=PrimaryStyle.FONT_COLOR)
+        self.proj_cads.grid(row=1, column=0, columnspan=2, sticky=tk.NSEW)
+
+        self.add_frame_pjc = tk.Frame(self.proj_cad_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.add_frame_pjc.grid(row=2, column=0, sticky=tk.NSEW)
+        self.add_frame_pjc.grid_rowconfigure(index=0, weight=1)
+        self.add_frame_pjc.grid_columnconfigure(index=0, weight=1)
+
+        self.add_button_pjc = tk.Button(self.add_frame_pjc, text='Add',
+                                        command=lambda: self._add_selection(self.CATEGORIES.PROJECT_CAD),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.add_button_pjc.grid(row=0, column=0, sticky=tk.NSEW)
+
+        self.del_frame_pjc = tk.Frame(self.proj_cad_frame, background=PrimaryStyle.PRIMARY_COLOR,
+                                      highlightbackground=PrimaryStyle.HL_BACKGROUND_COL,
+                                      highlightthickness=PrimaryStyle.HL_BACKGROUND_THICKNESS)
+        self.del_frame_pjc.grid(row=2, column=1, sticky=tk.NSEW)
+        self.del_frame_pjc.grid_rowconfigure(index=0, weight=1)
+        self.del_frame_pjc.grid_columnconfigure(index=0, weight=1)
+
+        self.del_button_pjc = tk.Button(self.del_frame_pjc, text='Delete',
+                                        command=lambda: self._delete_selection(self.CATEGORIES.PROJECT_CAD),
+                                        background=PrimaryStyle.PRIMARY_COLOR,
+                                        fg=PrimaryStyle.FONT_COLOR)
+        self.del_button_pjc.grid(row=0, column=0, sticky=tk.NSEW)
+
+    def _add_selection(self, category):
+        directory = filedialog.askdirectory()
+        if category == self.CATEGORIES.PROGRAM_AIRFOILS:
+            self.prog_airfoil_list.append(directory)
+            self.prog_airfoil_var.set(self.prog_airfoil_list)
+            self.root.project_manager.add_new_airfoil_directory(directory)
+            self.root.embedded_windows[WindowState.WING].update_airfoil_options()
+
+        elif category == self.CATEGORIES.PROGRAM_CAD:
+            self.prog_cad_list.append(directory)
+            self.prog_cad_var.set(self.prog_cad_list)
+            self.root.project_manager.add_new_cad_directory(directory)
+
+        elif category == self.CATEGORIES.PROJECT_AIRFOILS:
+            self.proj_airfoil_list.append(directory)
+            self.proj_airfoil_var.set(self.proj_airfoil_list)
+            self.root.curr_project.database.add_new_airfoil_directory(directory)
+            self.root.embedded_windows[WindowState.WING].update_airfoil_options()
+
+        elif category == self.CATEGORIES.PROJECT_CAD:
+            self.proj_cad_list.append(directory)
+            self.proj_cad_var.set(self.proj_cad_list)
+            self.root.curr_project.database.add_new_cad_directory(directory)
+
+    def _delete_selection(self, category):
+        if category == self.CATEGORIES.PROGRAM_AIRFOILS:
+            selection = self.prog_airfoils.curselection()[0]
+            del self.prog_airfoil_list[selection]
+            self.prog_airfoil_var.set(self.prog_airfoil_list)
+
+        elif category == self.CATEGORIES.PROGRAM_CAD:
+            selection = self.prog_cads.curselection()[0]
+            del self.prog_cad_list[selection]
+            self.prog_cad_var.set(self.prog_cad_list)
+
+        elif category == self.CATEGORIES.PROJECT_AIRFOILS:
+            selection = self.proj_airfoils.curselection()[0]
+            del self.proj_airfoil_list[selection]
+            self.proj_airfoil_var.set(self.proj_airfoil_list)
+
+        elif category == self.CATEGORIES.PROJECT_CAD:
+            selection = self.proj_cads.curselection()[0]
+            del self.proj_cad_list[selection]
+            self.proj_cad_var.set(self.proj_cad_list)
+
+    def update_from_project(self):
+        self.prog_airfoil_list = self.root.project_manager.program_airfoil_dirs
+        self.prog_airfoil_var.set(self.prog_airfoil_list)
+
+        self.prog_cad_list = self.root.project_manager.program_cad_dirs
+        self.prog_cad_var.set(self.prog_cad_list)
+
+        self.proj_airfoil_list = self.root.curr_project.database.airfoil_directory_paths
+        self.proj_airfoil_var.set(self.proj_airfoil_list)
+
+        self.proj_cad_list = self.root.curr_project.database.cad_directory_paths
+        self.proj_cad_var.set(self.proj_cad_list)
 
 
 def get_float(value):
@@ -3488,4 +3778,13 @@ def get_float(value):
         ret_val = float(value)
     except ValueError:
         logger.debug('Could not convert %s to float' % value)
+    return ret_val
+
+def get_int(value):
+    ret_val = None
+    logger = logging.getLogger(__name__)
+    try:
+        ret_val = int(value)
+    except ValueError:
+        logger.debug('Could not convert %s to int' % value)
     return ret_val
