@@ -2646,9 +2646,9 @@ class CADWindow(EmbeddedWindow):
         self.stl_prev_window.grid(row=0, column=0, sticky=tk.NSEW)
 
     def get_file_options(self):
-        files = list()
-        files.extend(self.root.curr_project.database.cad_files.keys())
-        return files
+        options = list(self.root.curr_project.database.cad_files.keys()) + list(
+            self.root.project_manager.cad_files.keys())
+        return options
 
     def update_name(self, event):
         self.scroll_frame.update_curr_name(name=self.name_text.get("1.0", "end-1c"))
@@ -2826,6 +2826,10 @@ class CADWindow(EmbeddedWindow):
         self.cad_parts = list()
         self.curr_selected = None
         self.update_gui(self.curr_selected)
+
+    def update_cad_files(self):
+        options = self.get_file_options()
+        self.stl_menu['values'] = options
 
     class WorkpieceWindow(tk.Frame):
         def __init__(self, master, root, **kwargs):
@@ -3724,6 +3728,7 @@ class DatabaseWindow(EmbeddedWindow):
             self.prog_cad_list.append(directory)
             self.prog_cad_var.set(self.prog_cad_list)
             self.root.project_manager.add_new_cad_directory(directory)
+            self.root.embedded_windows[WindowState.CAD].update_cad_files()
 
         elif category == self.CATEGORIES.PROJECT_AIRFOILS:
             self.proj_airfoil_list.append(directory)
@@ -3735,6 +3740,7 @@ class DatabaseWindow(EmbeddedWindow):
             self.proj_cad_list.append(directory)
             self.proj_cad_var.set(self.proj_cad_list)
             self.root.curr_project.database.add_new_cad_directory(directory)
+            self.root.embedded_windows[WindowState.CAD].update_cad_files()
 
     def _delete_selection(self, category):
         if category == self.CATEGORIES.PROGRAM_AIRFOILS:
