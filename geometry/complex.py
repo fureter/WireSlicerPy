@@ -1271,6 +1271,7 @@ class WingSegment(object):
 
         self.root_holes = None
         self.tip_holes = None
+        self.hole_info = None
 
         self.root_kerf = None
         self.tip_kerf = None

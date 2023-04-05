@@ -1829,6 +1829,7 @@ class WingWindow(EmbeddedWindow):
 
             self.spar_option_menu = ttk.Combobox(self.spar_addition_frame, textvariable=self.selected_spar,
                                                  values=[])
+            self.spar_option_menu.bind('<<ComboboxSelected>>', self.update)
             self.spar_option_menu.grid(row=0, column=0, sticky=tk.NSEW, padx=(4, 4), pady=1)
             self.spar_option_menu.grid_propagate(False)
 
@@ -1863,14 +1864,31 @@ class WingWindow(EmbeddedWindow):
             self.option_frame_cavity.grid(row=1, column=0, sticky=tk.NSEW)
             self.option_frame_cavity.set_visibility(False)
 
-        def update(self):
-            self.root.top_airfoil_frame.plot_airfoil('manual')
-            self.root.bot_airfoil_frame.plot_airfoil('manual')
-            if self.spar_option_menu.get() == '':
-                self.selected_spar_type.grid_remove()
-            else:
-                self.selected_spar_type.grid()
-            super(WingWindow.SparWindow, self).update()
+        def update(self, event=None):
+            if 'Hole' in self.spar_option_menu.get():
+                curr_wing = self.root.wings[self.root.curr_selected]
+
+                if curr_wing.hole_info is None:
+                    curr_wing.hole_info = list()
+
+                if self.spar_option_menu.get() == '':
+                    self.selected_spar_type.set('')
+                    self.selected_spar_type.grid_remove()
+                else:
+                    self.selected_spar_type.grid()
+
+                self.option_frame_cavity.update_gui()
+                self.option_frame_circle.update_gui()
+                self.option_frame_rect.update_gui()
+                super(WingWindow.SparWindow, self).update()
+
+        def update_available_holes(self):
+            self.spar_option_menu.configure(values=list())
+            curr_wing = self.root.wings[self.root.curr_selected]
+            if hasattr(curr_wing, 'hole_info') and curr_wing.hole_info is not None:
+                for ind in range(0, len(curr_wing.hole_info)):
+                    self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
+                        'Hole%s' % (len(list(self.spar_option_menu['values'])) + 1)])
 
         def add_hole(self):
             self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
@@ -1923,6 +1941,20 @@ class WingWindow(EmbeddedWindow):
                     ret_val = WingWindow.SparWindow.SparWindowTypes.CAVITY
                 return ret_val
 
+        class SparInfo(object):
+            def __init__(self):
+                self.spar_type = None
+                self.chord_start = None
+                self.chord_stop = None
+                self.height = None
+                self.width = None
+                self.angle = None
+                self.offset = None
+                self.start_angle = None
+                self.num_points = None
+                self.radius = None
+                self.thickness = None
+
         class SparWindowSubtype(tk.Frame):
             def __init__(self, master, root, **kwargs):
                 super(WingWindow.SparWindow.SparWindowSubtype, self).__init__(master, **kwargs)
@@ -1939,9 +1971,16 @@ class WingWindow(EmbeddedWindow):
                 raise NotImplementedError('Must be implemented by inherited class')
 
             def delete_selected_spar(self):
+                curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                del curr_wing.hole_info[curr_index]
+
                 self.root.selected_spar_type.set('')
                 self.root.select_spar_window('manual')
                 self.root.delete_item()
+
+            def update_gui(self):
+                raise NotImplementedError('Must be implemented by inherited class')
 
         class RectangleSpar(SparWindowSubtype):
             def __init__(self, master, root, **kwargs):
@@ -2055,6 +2094,19 @@ class WingWindow(EmbeddedWindow):
 
                     curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
 
+                    spar_info = WingWindow.SparWindow.SparInfo()
+                    spar_info.spar_type = WingWindow.SparWindow.SparWindowTypes.RECTANGLE
+                    spar_info.chord_start = chord_start
+                    spar_info.height = height
+                    spar_info.width = width
+                    spar_info.angle = angle
+                    spar_info.offset = offset
+                    spar_info.start_angle = start_angle
+                    spar_info.num_points = num_points
+
+                    if not hasattr(curr_wing, 'hole_info') or curr_wing.hole_info is None:
+                        curr_wing.hole_info = list()
+
                     if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
 
                         curr_wing.add_hole_root(
@@ -2062,6 +2114,7 @@ class WingWindow(EmbeddedWindow):
                                                            start_angle, num_points))
                         curr_wing.add_hole_tip(cm.WingSegment.RectangularHole(chord_start, height, width, angle, offset,
                                                                               start_angle, num_points))
+                        curr_wing.hole_info.append(spar_info)
                     else:
                         curr_wing.replace_hole_root(curr_index,
                                                     cm.WingSegment.RectangularHole(chord_start, height, width, angle,
@@ -2071,6 +2124,7 @@ class WingWindow(EmbeddedWindow):
                                                    cm.WingSegment.RectangularHole(chord_start, height, width, angle,
                                                                                   offset,
                                                                                   start_angle, num_points))
+                        curr_wing.hole_info[curr_index] = spar_info
 
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
@@ -2080,6 +2134,28 @@ class WingWindow(EmbeddedWindow):
 
             def delete_selected_spar(self):
                 super(WingWindow.SparWindow.RectangleSpar, self).delete_selected_spar()
+
+            def update_gui(self):
+                curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+                self.chord_start_text.delete(1.0, "end")
+                self.height_text.delete(1.0, "end")
+                self.width_text.delete(1.0, "end")
+                self.angle_text.delete(1.0, "end")
+                self.offset_text.delete(1.0, "end")
+                self.start_angle_text.delete(1.0, "end")
+                self.num_points_text.delete(1.0, "end")
+
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                if curr_wing.hole_info is not None and len(curr_wing.hole_info) > curr_index:
+                    spar_info = curr_wing.hole_info[curr_index]
+                    if spar_info.spar_type == WingWindow.SparWindow.SparWindowTypes.RECTANGLE:
+                        self.chord_start_text.insert(1.0, spar_info.chord_start*100.0)
+                        self.height_text.insert(1.0, spar_info.height)
+                        self.width_text.insert(1.0, spar_info.width)
+                        self.angle_text.insert(1.0, spar_info.angle)
+                        self.offset_text.insert(1.0, spar_info.offset)
+                        self.start_angle_text.insert(1.0, spar_info.start_angle)
+                        self.num_points_text.insert(1.0, spar_info.num_points)
 
         class CircularSpar(SparWindowSubtype):
             def __init__(self, master, root, **kwargs):
@@ -2176,12 +2252,25 @@ class WingWindow(EmbeddedWindow):
 
                     curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
 
+                    spar_info = WingWindow.SparWindow.SparInfo()
+                    spar_info.spar_type = WingWindow.SparWindow.SparWindowTypes.CIRCULAR
+                    spar_info.chord_start = chord_start
+                    spar_info.radius = radius
+                    spar_info.angle = angle
+                    spar_info.offset = offset
+                    spar_info.start_angle = start_angle
+                    spar_info.num_points = num_points
+
+                    if not hasattr(curr_wing, 'hole_info') or curr_wing.hole_info is None:
+                        curr_wing.hole_info = list()
+
                     if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
 
                         curr_wing.add_hole_root(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
                                                                           start_angle, num_points))
                         curr_wing.add_hole_tip(cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
                                                                          start_angle, num_points))
+                        curr_wing.hole_info.append(spar_info)
                     else:
                         curr_wing.replace_hole_root(curr_index,
                                                     cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
@@ -2189,6 +2278,8 @@ class WingWindow(EmbeddedWindow):
                         curr_wing.replace_hole_tip(curr_index,
                                                    cm.WingSegment.CircleHole(chord_start, radius, angle, offset,
                                                                              start_angle, num_points))
+                        curr_wing.hole_info[curr_index] = spar_info
+
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
                     self.root.root.bot_airfoil_frame.plot_airfoil('manual')
@@ -2197,6 +2288,26 @@ class WingWindow(EmbeddedWindow):
 
             def delete_selected_spar(self):
                 super(WingWindow.SparWindow.CircularSpar, self).delete_selected_spar()
+
+            def update_gui(self):
+                curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+                self.chord_start_text.delete(1.0, "end")
+                self.radius_text.delete(1.0, "end")
+                self.angle_text.delete(1.0, "end")
+                self.offset_text.delete(1.0, "end")
+                self.start_angle_text.delete(1.0, "end")
+                self.num_points_text.delete(1.0, "end")
+
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                if curr_wing.hole_info is not None and len(curr_wing.hole_info) > curr_index:
+                    spar_info = curr_wing.hole_info[curr_index]
+                    if spar_info.spar_type == WingWindow.SparWindow.SparWindowTypes.CIRCULAR:
+                        self.chord_start_text.insert(1.0, spar_info.chord_start*100.0)
+                        self.radius_text.insert(1.0, spar_info.radius)
+                        self.angle_text.insert(1.0, spar_info.angle)
+                        self.offset_text.insert(1.0, spar_info.offset)
+                        self.start_angle_text.insert(1.0, spar_info.start_angle)
+                        self.num_points_text.insert(1.0, spar_info.num_points)
 
         class CavityHole(SparWindowSubtype):
             def __init__(self, master, root, **kwargs):
@@ -2280,11 +2391,22 @@ class WingWindow(EmbeddedWindow):
                     tip_foil = copy.deepcopy(
                         self.root.root.bot_airfoil_frame.get_airfoil_data(tip_foil)) if tip_foil != '' else None
 
+                    spar_info = WingWindow.SparWindow.SparInfo()
+                    spar_info.spar_type = WingWindow.SparWindow.SparWindowTypes.CAVITY
+                    spar_info.chord_start = chord_start
+                    spar_info.chord_stop = chord_stop
+                    spar_info.thickness = thickness
+                    spar_info.num_points = num_points
+
+                    if not hasattr(curr_wing, 'hole_info') or curr_wing.hole_info is None:
+                        curr_wing.hole_info = list()
+
                     if (curr_index == 0 and curr_wing.root_holes is None) or (curr_index >= len(curr_wing.root_holes)):
                         curr_wing.add_hole_root(cm.WingSegment.CavityHole(chord_start, chord_stop, root_foil, thickness,
                                                                           num_points=num_points))
                         curr_wing.add_hole_tip(cm.WingSegment.CavityHole(chord_start, chord_stop, tip_foil, thickness,
                                                                          num_points=num_points))
+                        curr_wing.hole_info.append(spar_info)
                     else:
                         curr_wing.replace_hole_root(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop,
                                                                                           root_foil, thickness,
@@ -2292,6 +2414,7 @@ class WingWindow(EmbeddedWindow):
                         curr_wing.replace_hole_tip(curr_index, cm.WingSegment.CavityHole(chord_start, chord_stop,
                                                                                          tip_foil, thickness,
                                                                                          num_points=num_points))
+                        curr_wing.hole_info[curr_index] = spar_info
 
                     self.root.root.save_settings()
                     self.root.root.top_airfoil_frame.plot_airfoil('manual')
@@ -2301,6 +2424,22 @@ class WingWindow(EmbeddedWindow):
 
             def delete_selected_spar(self):
                 super(WingWindow.SparWindow.CavityHole, self).delete_selected_spar()
+
+            def update_gui(self):
+                curr_index = int(self.root.spar_option_menu.get()[4:]) - 1
+                self.chord_start_text.delete(1.0, "end")
+                self.chord_stop_text.delete(1.0, "end")
+                self.wall_thickness_text.delete(1.0, "end")
+                self.num_points_text.delete(1.0, "end")
+
+                curr_wing = self.root.root.wings[self.root.root.curr_selected]
+                if curr_wing.hole_info is not None and len(curr_wing.hole_info) > curr_index:
+                    spar_info = curr_wing.hole_info[curr_index]
+                    if spar_info.spar_type == WingWindow.SparWindow.SparWindowTypes.CAVITY:
+                        self.chord_start_text.insert(1.0, spar_info.chord_start*100.0)
+                        self.chord_stop_text.insert(1.0, spar_info.chord_stop*100.0)
+                        self.wall_thickness_text.insert(1.0, spar_info.thickness)
+                        self.num_points_text.insert(1.0, spar_info.num_points)
 
     def save_settings(self):
         if self.curr_selected is not None:
@@ -2419,6 +2558,7 @@ class WingWindow(EmbeddedWindow):
             else:
                 self.top_airfoil_frame.plot_airfoil('manual')
                 self.bot_airfoil_frame.plot_airfoil('manual')
+            self.spar_frame.update_available_holes()
 
         return ret_val
 
@@ -2442,6 +2582,7 @@ class WingWindow(EmbeddedWindow):
             names.append(item.name)
         self.scroll_frame.update_from_list(names)
         self.update_airfoil_options()
+        self.spar_frame.update_available_holes()
 
     def reset(self):
         for wing in reversed(self.wings):
