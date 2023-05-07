@@ -182,3 +182,9 @@ class PartDatabase(object):
             self.cad_files[name] = file_path
         elif file_path.endswith(".obj"):
             self.cad_files[name] = file_path
+
+    def reset(self):
+        self.airfoils = dict()
+        self.cad_files = dict()
+
+        self._load_from_directories()

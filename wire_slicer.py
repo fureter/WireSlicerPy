@@ -24,7 +24,6 @@
     -trimesh
     -shapely
     -jsonpickle
-    -GitPython
     -networkx
 
     Optional:

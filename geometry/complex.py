@@ -29,7 +29,7 @@ class CrossSectionPair(object):
         self.section1 = copy.deepcopy(section1)
         self.section2 = copy.deepcopy(section2)
 
-    def subdivide(self, num_sections):
+    def subdivide(self, num_sections, num_points=200):
         """
 
         :param int num_sections:
@@ -51,6 +51,8 @@ class CrossSectionPair(object):
             for index in range(num_sections):
                 curr_section1 = list()
                 curr_section2 = list()
+                independent_holes_1 = list()
+                independent_holes_2 = list()
                 arc_len = 360 / num_sections
                 upper_range = arc_len * (index + 1)
                 lower_range = arc_len * index
@@ -65,11 +67,17 @@ class CrossSectionPair(object):
                 if hole1 is not None:
                     tmp_list = list()
                     for hole in hole1:
+                        hole_point_list = list()
                         for point in hole:
                             theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
 
                             if lower_range < theta <= upper_range:
-                                tmp_list.append(copy.deepcopy(point))
+                                hole_point_list.append(copy.deepcopy(point))
+                        if len(hole_point_list) == len(hole):
+                            independent_holes_1.append(hole_point_list)
+                        else:
+                            if len(hole_point_list) > 0:
+                                tmp_list.append(hole_point_list)
                     curr_section1 = PointManip.reorder_2d_cw_subdivide(outer_points=copy.deepcopy(curr_section1),
                                                                        inner_points=tmp_list, center=center)
                 else:
@@ -84,11 +92,17 @@ class CrossSectionPair(object):
                 if hole2 is not None:
                     tmp_list = list()
                     for hole in hole2:
+                        hole_point_list = list()
                         for point in hole:
                             theta = (np.rad2deg(np.arctan2(point['y'] - center['y'], point['x'] - center['x'])) + 180) % 360
 
                             if lower_range < theta <= upper_range:
-                                tmp_list.append(copy.deepcopy(point))
+                                hole_point_list.append(copy.deepcopy(point))
+                        if len(hole_point_list) == len(hole):
+                            independent_holes_2.append(hole_point_list)
+                        else:
+                            if len(hole_point_list) > 0:
+                                tmp_list.append(hole_point_list)
                     curr_section2 = PointManip.reorder_2d_cw_subdivide(outer_points=copy.deepcopy(curr_section2),
                                                                        inner_points=tmp_list, center=center)
                 else:
@@ -98,13 +112,24 @@ class CrossSectionPair(object):
                 curr_section1 = prim.GeometricFunctions.remove_duplicate_memory_from_path(curr_section1)
                 curr_section2 = prim.GeometricFunctions.remove_duplicate_memory_from_path(curr_section2)
 
-                path1 = prim.GeometricFunctions.normalize_path_points(prim.GeometricFunctions.close_path(curr_section1),
-                                                                      num_points=200)
-                path2 = prim.GeometricFunctions.normalize_path_points(prim.GeometricFunctions.close_path(curr_section2),
-                                                                      num_points=200)
+                path1 = prim.GeometricFunctions.close_path(
+                    prim.GeometricFunctions.normalize_path_points(prim.GeometricFunctions.close_path(curr_section1),
+                                                                  num_points=num_points))
+                path2 = prim.GeometricFunctions.close_path(
+                    prim.GeometricFunctions.normalize_path_points(prim.GeometricFunctions.close_path(curr_section2),
+                                                                  num_points=num_points))
 
                 ret_val.append(CrossSectionPair(section1=CrossSection(
                     prim.Path(path1)), section2=CrossSection(prim.Path(path2))))
+
+                if len(independent_holes_1) > 0:
+                    for ind in range(len(independent_holes_1)):
+                        ret_val[-1].section1.add_hole(CrossSection(prim.Path(independent_holes_1[ind])))
+                if len(independent_holes_2) > 0:
+                    for ind in range(len(independent_holes_2)):
+                        ret_val[-1].section2.add_hole(CrossSection(prim.Path(independent_holes_2[ind])))
+
+                ret_val[-1].align_start()
 
         return ret_val
 
@@ -120,7 +145,7 @@ class CrossSectionPair(object):
             section.append(copy.deepcopy(point_inter_upper))
 
     @staticmethod
-    def subdivide_list(num_sections, section_list):
+    def subdivide_list(num_sections, section_list, num_points=200):
         """
 
         :param num_sections:
@@ -130,7 +155,7 @@ class CrossSectionPair(object):
         subdivided_list = list()
         for section_pair in section_list:
             if num_sections > 1:
-                sections = section_pair.subdivide(num_sections)
+                sections = section_pair.subdivide(num_sections, num_points=num_points)
             else:
                 sections = [section_pair]
             subdivided_list.extend(sections)
@@ -229,14 +254,18 @@ class CrossSectionPair(object):
         section2_path = self.section2.get_path()
 
         start_index1 = prim.GeometricFunctions.get_index_min_coord(section1_path, 'x')
-        start_index2 = prim.GeometricFunctions.get_index_min_coord(section2_path, 'x')
+        start_index2 = prim.GeometricFunctions.get_multi_index_min_coord(section2_path, 'x', num_return=2)
+        if (np.sqrt((section1_path[start_index1] - section2_path[start_index2[0]])**2) <
+                np.sqrt((section1_path[start_index1] - section2_path[start_index2[1]])**2)):
+            start_index2 = start_index2[0]
+        else:
+            start_index2 = start_index2[1]
 
         reordered_path1 = section1_path[start_index1:] + section1_path[0:start_index1]
         reordered_path2 = section2_path[start_index2:] + section2_path[0:start_index2]
 
         self.section1 = CrossSection(prim.Path(reordered_path1))
         self.section2 = CrossSection(prim.Path(reordered_path2))
-
 
     def get_path(self):
         return self.section1.get_path(), self.section2.get_path()
@@ -858,7 +887,7 @@ class CutPath():
 
         serializer.encode(sp, os.path.join(os.path.dirname(output_dir), 'json'), 'spatial_placement_bf_cp_gen')
 
-        cut_path_1, cut_path_2 = sp.create_section_links_for_cross_section_pairs(method=1)
+        cut_path_1, cut_path_2 = sp.create_section_links_for_cross_section_pairs()
         serializer.encode(sp, os.path.join(os.path.dirname(output_dir), 'json'), 'spatial_placement_af_cp_gen')
         sp.plot_section_order(output_dir)
         # sp.plot_section_splitting_debug(output_dir)
@@ -1031,13 +1060,21 @@ class STL():
             # If there is more than 1 hole, verify that the proper holes algin with one another, if they do not
             # rearrange the hole list.
             if len1 == len2 and len1 > 1:
+                hole_order = list()
                 # get relative distances for the holes
-                distance = list()
                 # Todo: This probably only works for a 2 hole case, should test with 2+ and rewrite.
-                for hole in holes1:
-                    distance.append((hole[0] - holes2[0][0])**2)
-                if distance[1] < distance[0]:
-                    pair.section2.holes = list(reversed(pair.section2.holes))
+                for ind in range(len1):
+                    distance = list()
+                    center1 = prim.GeometricFunctions.get_center_of_path(holes1[ind])
+                    for ind2 in range(len2):
+                        center2 = prim.GeometricFunctions.get_center_of_path(holes2[ind2])
+                        distance.append((center1-center2)**2)
+                    index_min = min(range(len(distance)), key=distance.__getitem__)
+                    hole_order.append(index_min)
+                tmp_holes = list()
+                for order_index in hole_order:
+                    tmp_holes.append(CrossSection(prim.Path(holes2[order_index])))
+                pair.section2.holes = copy.deepcopy(tmp_holes)
 
     def _normalize_number_of_holes(self, cross_section_pair_list):
         """
@@ -1125,6 +1162,7 @@ class STL():
                         plt.axis('equal')
                         plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_nor_%s.png' % ind1))
 
+                    # Realign the path so that first point starts at 180deg from the center
                     path = PointManip.reorder_2d_cw(path, method=6)
                     # Remove any duplicate points that are memory equivalent, these points would get double transformed
                     # later down the line.
@@ -1136,12 +1174,13 @@ class STL():
                         prim.GeometricFunctions.plot_path([path[0]], color='C10', scatter=True, scatter_color='C20')
                         plt.axis('equal')
                         plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), 'debug_cross_section_f_%s.png' % ind1))
-
+                    # Close the path so that the last point is the first point.
+                    path = prim.GeometricFunctions.close_path(path)
                     # Save off the transformed points as CrossSections
                     cross_section = CrossSection(section_list=[prim.Path(path)])
                     # Holes are present in the geometry
                     if len(section.entities) > 1:
-                        for ind in range(1, len(section.entities)):
+                        for ind in range(1, len(section.discrete)):
                             hole_points = list()
                             # Add the points from trimesh discrete path
                             for ind2 in range(0, len(section.discrete[ind])):
@@ -1152,6 +1191,7 @@ class STL():
                             path_hole = prim.GeometricFunctions.normalize_path_points(path_hole, num_points=num_points)
                             path_hole = PointManip.reorder_2d_cw(path_hole, method=6)
                             path_hole = prim.GeometricFunctions.remove_duplicate_memory_from_path(path_hole)
+                            path_hole = prim.GeometricFunctions.close_path(path_hole)
                             cross_section.add_hole(CrossSection(section_list=[prim.Path(path_hole)]))
                         longest_length = 0
                         length_ind = 0

@@ -18,7 +18,7 @@ WorkPiece = namedtuple('WorkPiece', field_names=['width', 'height', 'thickness']
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-class Point():
+class Point(object):
     """
 
     """
@@ -51,9 +51,7 @@ class Point():
 
     def __eq__(self, other):
         if isinstance(other, Point):
-            return abs(other['x'] - self['x']) < Point.EQUAL_TOL \
-                   and abs(other['y'] - self['y']) < Point.EQUAL_TOL\
-                   and abs(other['z'] - self['z']) < Point.EQUAL_TOL
+            return np.sqrt((other - self)**2) < self.EQUAL_TOL
 
     def __add__(self, other):
         if isinstance(other, Point):
@@ -822,6 +820,27 @@ class GeometricFunctions(object):
         return indx
 
     @staticmethod
+    def get_multi_index_min_coord(path, dim, num_return):
+        if not isinstance(path[0], Point):
+            if dim == 'x':
+                dim = 0
+            elif dim == 'y':
+                dim = 1
+            elif dim == 'z':
+                dim = 2
+        indx = list()
+        for ind in range(num_return):
+            tmp_idx = 0
+            min = sys.maxsize
+            for idx in range(0, len(path)):
+                if path[idx][dim] < min and idx not in indx:
+                    min = path[idx][dim]
+                    tmp_idx = idx
+            indx.append(tmp_idx)
+
+        return indx
+
+    @staticmethod
     def path_length(path):
         length = 0
         if isinstance(path, list) or isinstance(path, np.ndarray):
@@ -936,6 +955,7 @@ class GeometricFunctions(object):
         :return:
         :rtype: list[Point]
         """
+        logger = logging.getLogger(__name__)
         addr_list = list()
         tmp_path = list()
         for point in path:
@@ -943,6 +963,8 @@ class GeometricFunctions(object):
             if addr not in addr_list:
                 addr_list.append(addr)
                 tmp_path.append(point)
+            else:
+                logger.debug('Point with memory Address(%s) removed from path' % addr)
         return tmp_path
 
     @staticmethod
@@ -1178,7 +1200,7 @@ class GeometricFunctions(object):
         return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
 
     @staticmethod
-    def plot_path(path, color, scatter=True, scatter_color=None):
+    def plot_path(path, color, scatter=True, scatter_color=None, scatter_size=3):
         len_path = len(path)
 
         x = np.zeros(len_path)
@@ -1194,9 +1216,9 @@ class GeometricFunctions(object):
             plt.plot(x, y)
         if scatter:
             if scatter_color is not None:
-                plt.scatter(x, y, c=scatter_color)
+                plt.scatter(x, y, c=scatter_color, s=scatter_size)
             else:
-                plt.scatter(x, y)
+                plt.scatter(x, y, s=scatter_size)
 
     @staticmethod
     def animate_path(path):

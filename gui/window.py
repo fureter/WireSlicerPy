@@ -370,6 +370,8 @@ class MainWindow(tk.Tk):
         self.embedded_windows[self.active_window].save_settings()
         self.active_window = window_enum
         self.embedded_windows[window_enum].tkraise()
+        if window_enum in [WindowState.WING, WindowState.CAD, WindowState.MACHINE_SETUP]:
+            self.embedded_windows[window_enum].update_gui(self.embedded_windows[window_enum].curr_selected)
         print('Changing Window')
         self.update()
 
@@ -412,6 +414,7 @@ class MainWindow(tk.Tk):
 
     def _load_project(self, file_path):
         self.curr_project = pm.Project.load_project(file_path)
+        self.curr_project.database.reset()
         self.title(self.window_title + ' Project: %s' % self.curr_project.name)
         self.embedded_windows[WindowState.WING].update_from_project()
         self.embedded_windows[WindowState.WING].wings = copy.deepcopy(self.curr_project.wings)
@@ -1313,11 +1316,13 @@ class WingWindow(EmbeddedWindow):
         self.slice_btn_frame.grid_columnconfigure(index=1, weight=8)
         self.slice_btn_frame.grid_propagate(False)
 
-        self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected', command=self.slice_selected)
+        self.slice_btn = tk.Button(self.slice_btn_frame, text='Slice\nSelected',
+                                   command=create_thread_callback(self.slice_selected))
         self.slice_btn.grid(row=0, column=0, sticky=tk.NSEW, padx=(PrimaryStyle.GENERAL_PADDING / 4, 1),
                             pady=PrimaryStyle.GENERAL_PADDING / 4)
 
-        self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll', command=self.slice_all)
+        self.slice_all_btn = tk.Button(self.slice_btn_frame, text='Slice\nAll',
+                                       command=create_thread_callback(self.slice_all))
         self.slice_all_btn.grid(row=0, column=1, sticky=tk.NSEW, padx=(1, PrimaryStyle.GENERAL_PADDING / 4),
                                 pady=PrimaryStyle.GENERAL_PADDING / 4)
 
@@ -1884,11 +1889,12 @@ class WingWindow(EmbeddedWindow):
 
         def update_available_holes(self):
             self.spar_option_menu.configure(values=list())
-            curr_wing = self.root.wings[self.root.curr_selected]
-            if hasattr(curr_wing, 'hole_info') and curr_wing.hole_info is not None:
-                for ind in range(0, len(curr_wing.hole_info)):
-                    self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
-                        'Hole%s' % (len(list(self.spar_option_menu['values'])) + 1)])
+            if self.root.curr_selected is not None:
+                curr_wing = self.root.wings[self.root.curr_selected]
+                if hasattr(curr_wing, 'hole_info') and curr_wing.hole_info is not None:
+                    for ind in range(0, len(curr_wing.hole_info)):
+                        self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
+                            'Hole%s' % (len(list(self.spar_option_menu['values'])) + 1)])
 
         def add_hole(self):
             self.spar_option_menu.configure(values=list(self.spar_option_menu['values']) + [
@@ -2547,7 +2553,7 @@ class WingWindow(EmbeddedWindow):
 
             self.wing_setting_frame.cnc_machine_option_menu.configure(
                 values=self.wing_setting_frame.get_machine_options())
-            if wing.machine_tag is not None and wing.machine_tag in self.wing_setting_frame.get_machine_options():
+            if wing.machine_tag is not None and wing.machine_tag in (self.wing_setting_frame.get_machine_options() + ['Select CNC Machine']):
                 self.wing_setting_frame.cnc_machine_option_menu.set(wing.machine_tag)
 
             if wing.root_airfoil_tag is not None:
@@ -2595,12 +2601,15 @@ class WingWindow(EmbeddedWindow):
         self.update_gui(self.curr_selected)
 
     def slice_selected(self):
+        self.root.progress_bar.start()
         self.save_settings()
         wing = self.wings[self.curr_selected]
         machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
         sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
+        self.root.progress_bar.stop()
 
     def slice_all(self):
+        self.root.progress_bar.start()
         orig_sel = self.curr_selected
         for ind in range(len(self.wings)):
             self.curr_selected = ind
@@ -2608,6 +2617,7 @@ class WingWindow(EmbeddedWindow):
             machine = self.root.get_window_instance(window=WindowState.MACHINE_SETUP).get_machine(wing.machine_tag)
             sm.SliceManager.wing_to_gcode(wing=wing, wire_cutter=machine, output_dir=self.root.curr_project.output_dir)
         self.curr_selected = orig_sel
+        self.root.progress_bar.stop()
 
     def update_airfoil_options(self):
         options = self.top_airfoil_frame.get_airfoil_options()
@@ -2918,17 +2928,15 @@ class CADWindow(EmbeddedWindow):
                     self.setting_frame.tertiary_axis_var.set(1)
                     self.setting_frame.check_tertiary()
             if hasattr(cad_part, 'flip_axis') and cad_part.flip_axis is not None:
-                if cad_part.flip_axis:
-                    self.setting_frame.flip_axis_var.set(1)
-                    self.setting_frame.check_flip()
+                self.setting_frame.flip_axis_var.set(1 if cad_part.flip_axis else 0)
+                self.setting_frame.check_flip()
+
             if hasattr(cad_part, 'open_nose') and cad_part.open_nose is not None:
-                if cad_part.open_nose:
-                    self.setting_frame.open_nose_var.set(1)
-                    self.setting_frame.check_open_nose()
+                self.setting_frame.open_nose_var.set(1 if cad_part.open_nose else 0)
+                self.setting_frame.check_open_nose()
             if hasattr(cad_part, 'open_tail') and cad_part.open_tail is not None:
-                if cad_part.open_tail:
-                    self.setting_frame.open_tail_var.set(1)
-                    self.setting_frame.check_open_tail()
+                self.setting_frame.open_tail_var.set(1 if cad_part.open_tail else 0)
+                self.setting_frame.check_open_tail()
             if hasattr(cad_part, 'hollow_list') and cad_part.hollow_list is not None:
                 self.setting_frame.advanced_hollow_cntrl_text.insert(1.0, cad_part.hollow_list)
 
@@ -3372,11 +3380,20 @@ class CADWindow(EmbeddedWindow):
             self.slice_all_btn.grid(row=0, column=2, sticky=tk.NSEW, padx=(1, 0),
                                     pady=(PrimaryStyle.GENERAL_PADDING / 4, 0))
 
+        def get_stl_path(self, key):
+            ret_val = None
+            if key in self.root.root.curr_project.database.cad_files.keys():
+                ret_val = self.root.root.curr_project.database.cad_files[self.root.stl_menu.get()]
+            elif key in self.root.root.project_manager.cad_files.keys():
+                ret_val = self.root.root.project_manager.cad_files[self.root.stl_menu.get()]
+            return ret_val
+
+
         def preview_selected(self):
             self.root.root.progress_bar.start()
 
             name = self.root.name_text.get(1.0, 'end-1c')
-            stl_path = self.root.root.curr_project.database.cad_files[self.root.stl_menu.get()]
+            stl_path = self.get_stl_path(self.root.stl_menu.get())
             logger = self.root.logger
             output_dir = self.root.root.curr_project.output_dir
             units = self.root.unit_menu.get()

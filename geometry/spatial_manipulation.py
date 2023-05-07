@@ -76,38 +76,46 @@ class PointManip():
         """
         Sorting method used specifically for subdivisions.
         :param list[prim.Point] outer_points:
-        :param list[prim.Point] inner_points:
+        :param list[list[prim.Point]] inner_points:
         :return: List of points sorted to be clock wise.
         """
-        outer_center = prim.Point(0, 0, 0)
-        for point in outer_points:
-            outer_center += point
-        outer_center /= len(outer_points)
-        # TODO: Not stable, the points are already sorted as a whole section, we shouldn't need to reorder after
-        #  subdividing.
-        # sorted_outer = PointManip._polar_sort(outer_points, (center * 0.8 - outer_center * 0.2))
-        # sorted_outer = PointManip._tsp_touchup(sorted_outer, 20)
         sorted_outer = outer_points
         sorted_outer = PointManip._reorder_from_gap_cw(sorted_outer)
-        # plt.scatter([outer_center['x']], [outer_center['y']])
-        # prim.GeometricFunctions.plot_path(sorted_outer, color='g', scatter=False)
         if inner_points:
-            inner_center = prim.Point(0, 0, 0)
-            for point in inner_points:
-                inner_center += point
-            inner_center /= len(inner_points)
-            # sorted_inner = PointManip._polar_sort(inner_points, (center*0.8-inner_center*0.2))
-            # sorted_inner = PointManip._tsp_touchup(sorted_inner, 20)
-            sorted_inner = inner_points
-            sorted_inner = PointManip._reorder_from_gap_cw(sorted_inner)
-            # plt.scatter([inner_center['x']], [inner_center['y']])
-            # prim.GeometricFunctions.plot_path(sorted_inner, color='r', scatter=False)
-        # plt.legend(['Center_O', 'Outer', 'Center_I', 'Inner'])
-        # plt.show()
+            while len(inner_points) > 0:
+                next_section = list()
+                min_dist = sys.maxsize
+                min_index = 0
+                for ind in range(len(inner_points)):
+                    sorted_inner = inner_points[ind]
+                    sorted_inner = PointManip._reorder_from_gap_cw(sorted_inner)
 
-        if inner_points:
-            for point in reversed(sorted_inner):
-                sorted_outer.append(point)
+                    dist_1 = np.sqrt((sorted_inner[0] - sorted_outer[0])**2)
+                    dist_2 = np.sqrt((sorted_inner[-1] - sorted_outer[0])**2)
+                    dist_3 = np.sqrt((sorted_inner[0] - sorted_outer[-1])**2)
+                    dist_4 = np.sqrt((sorted_inner[-1] - sorted_outer[-1])**2)
+                    dist = min([dist_1, dist_2, dist_3, dist_4])
+                    if dist < min_dist:
+                        min_dist = dist
+                        min_index = ind
+                        next_section = copy.deepcopy(sorted_inner)
+
+                dist_1 = np.sqrt((next_section[0] - sorted_outer[0])**2)
+                dist_2 = np.sqrt((next_section[-1] - sorted_outer[0])**2)
+                dist_3 = np.sqrt((next_section[0] - sorted_outer[-1])**2)
+                dist_4 = np.sqrt((next_section[-1] - sorted_outer[-1])**2)
+                dist = [dist_1, dist_2, dist_3, dist_4]
+                index_min = min(range(len(dist)), key=dist.__getitem__)
+
+                if index_min == 0:
+                    sorted_outer = list(reversed(next_section)) + sorted_outer
+                elif index_min == 1:
+                    sorted_outer = next_section + sorted_outer
+                elif index_min == 2:
+                    sorted_outer.extend(next_section)
+                else:
+                    sorted_outer.extend(list(reversed(next_section)))
+                inner_points.remove(inner_points[min_index])
 
         return sorted_outer
 
@@ -142,16 +150,7 @@ class PointManip():
         :return: reordered list of points
         """
         logger = logging.getLogger(__name__)
-        center = [0, 0, 0]
-        for i in range(0, len(points)):
-            center[0] += points[i]['x']
-            center[1] += points[i]['y']
-            center[2] += points[i]['z']
-
-        center[0] = center[0] / len(points)
-        center[1] = center[1] / len(points)
-        center[2] = center[2] / len(points)
-        center = prim.Point(center[0], center[1], center[2])
+        center = prim.GeometricFunctions.get_center_of_path(points)
 
         start_polar = timeit.default_timer()
         if method == 0:

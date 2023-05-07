@@ -134,6 +134,7 @@ class SliceManager(object):
             rot_mat = trimesh.transformations.rotation_matrix(np.pi, flip_rot, [0, 0, 0])
             cut_stl.mesh.apply_transform(rot_mat)
             bounding_box = cut_stl.mesh.bounds
+            scale = 0.999 if bounding_box[0][used_index] < 0 else 1.001
             extent = bounding_box[0] * normal * scale
             slice_plane = prim.Plane(extent[0], extent[1], extent[2], normal[0], normal[1], normal[2])
 
@@ -162,7 +163,7 @@ class SliceManager(object):
             plt.savefig(os.path.join(os.path.join(output_dir, 'plots'), '%s_Cross_Section_orig_%s.png' % (name, ind)))
             plt.show()
 
-        subdivided_list = comp.CrossSectionPair.subdivide_list(subdivisions, section_list)
+        subdivided_list = comp.CrossSectionPair.subdivide_list(subdivisions, section_list, num_points=num_points)
         for ind, section in enumerate(subdivided_list):
             plt.close('all')
             plt.figure(figsize=(16, 9), dpi=320)
@@ -172,8 +173,16 @@ class SliceManager(object):
             # section.align_start()
             prim.GeometricFunctions.plot_path(section.section1.get_path(), color='C3', scatter=True)
             prim.GeometricFunctions.plot_path(section.section2.get_path(), color='C4', scatter=True)
-            prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True)
-            prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True)
+            prim.GeometricFunctions.plot_path([section.section1.get_path()[0]], color='C10', scatter=True,
+                                              scatter_size=40)
+            prim.GeometricFunctions.plot_path([section.section2.get_path()[0]], color='C11', scatter=True,
+                                              scatter_size=40)
+            if section.section1.get_path_hole() is not None:
+                for hole in section.section1.get_path_hole():
+                    prim.GeometricFunctions.plot_path(hole, color='C3', scatter=False)
+            if section.section2.get_path_hole() is not None:
+                for hole in section.section2.get_path_hole():
+                    prim.GeometricFunctions.plot_path(hole, color='C4', scatter=False)
 
             plt.legend(['Section 1 orig', 'Section 2 orig', 'Section 1 kerf', 'Section 2 kerf'])
             plt.axis('equal')
