@@ -48,6 +48,21 @@ class PointManip():
                 PointManip.Transform.translate(points, origin)
 
         @staticmethod
+        def rotate_dcm(points, dcm, origin=None):
+            if origin is not None:
+                PointManip.Transform.translate(points, [-origin[0], -origin[1], -origin[2]])
+
+            for point in points:
+                tmp = np.array([point['x'], point['y'], point['z']])
+                new_point = dcm @ tmp
+                point['x'] = new_point[0]
+                point['y'] = new_point[1]
+                point['z'] = new_point[2]
+
+            if origin is not None:
+                PointManip.Transform.translate(points, origin)
+
+        @staticmethod
         def scale(points, scale, origin=None):
             scale_mat = np.array([[scale[0], 0, 0, 0],
                                   [0, scale[1], 0, 0],

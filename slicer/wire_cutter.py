@@ -1,3 +1,7 @@
+import numpy as np
+
+from util.util_functions import cmd_to_byte_array
+
 class WireCutter(object):
     """
 
@@ -57,3 +61,54 @@ class WireCutter(object):
 
     def set_dynamic_tension_feed_comp(self, compensate):
         self.dynamic_tension_feed_comp = compensate
+
+
+class XArm1s(object):
+    HEADER = 0x55
+    SERVO_MOVE = 0x03
+
+    def __init__(self, serial_port):
+        self.num_servos = 5
+        self.serial = serial_port
+        self.servo_positions = [0]*5
+    def _servo_move_command(self, servo_id, position):
+        cmd = ''.join('{:02X}'.format(a) for a in [
+                              servo_id, position & 0xFF, ((position >> 8) & 0xFF)])
+        return cmd
+
+    def move_servo(self, servo_id, position, time):
+        cmd = ''.join('{:02X}'.format(a) for a in [XArm1s.HEADER, XArm1s.HEADER, 8, XArm1s.SERVO_MOVE,
+                                                   0x01, time & 0xFF, ((time >> 8) & 0xFF)])
+        cmd += self._servo_move_command(servo_id, position)
+        self.serial.write(cmd_to_byte_array(cmd))
+
+    def move_servos(self, servo_ids, positions, time):
+        cmd = ''.join('{:02X}'.format(a) for a in [XArm1s.HEADER, XArm1s.HEADER, 5+len(servo_ids)*3, XArm1s.SERVO_MOVE,
+                                                   len(servo_ids), time & 0xFF, ((time >> 8) & 0xFF)])
+        for (servo_id, position) in zip(servo_ids, positions):
+            cmd += self._servo_move_command(servo_id, position)
+        self.serial.write(cmd_to_byte_array(cmd))
+
+class TMC2209(object):
+    HEADER = 0xA0
+    def __init__(self, serial_port):
+        self.datagram_length =64
+        self.serial = serial_port
+        self.datagram = np.zeros(64, dtype=np.byte)
+        self.datagram[0] = TMC2209.HEADER
+
+
+    def calc_crc(self):
+        crc = np.byte(0)
+        for i in range(self.datagram_length-1):
+            curr_byte = self.datagram[i]
+            for j in range(8):
+                if (crc >> 7) ^ (curr_byte & 0x01):
+                    crc = (crc << 1) ^ 0x07
+                else:
+                    crc = crc << 1
+                curr_byte = curr_byte >> 1
+        return crc
+
+
+

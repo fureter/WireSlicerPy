@@ -1,16 +1,21 @@
 import argparse
 import copy
+import os
+from pathlib import Path
 
 import numpy as np
 import pinocchio as pin
 
 from g_code import generator
-from geometry.complex import STL, Voxel
+from geometry.complex import STL, Voxel, ThermalVoxel
+from geometry.primative import Plane
+from slicer.materials import Material
 
 WORKSPACE_NEUTRAL_CONFIG = np.array([0, 0, 0, 0, 0, 0])  # TODO: Based on workspace configuration, robot, and workpiece
 
 
-def main():
+def main(stl_file_path, robot_file_path, workpiece_material, wire_cutter_desc, output_dir, cell_resolution,
+         theta_resolution, tolerance, debug):
     """
     Algorithm outline:
     1. Load Geometry
@@ -28,33 +33,51 @@ def main():
     This approach currently assumes a constant electrical input to the cutting tool and does not generate any power
     supply commands. Electrical and thermal constants need to be supplied to the program for melt-front modeling.
     """
+    debug_dir = None
+    if debug:
+        Path(os.path.join(output_dir, 'debug')).mkdir(exist_ok=True)
+        debug_dir = os.path.join(output_dir, 'debug')
 
+    material = Material(workpiece_material)
     servo_command_list = []
+    ROTATION_ORIGIN = np.array([0.40, 0.0, 0.0])*1000  # Millimeters
 
     stl = STL(stl_file_path, units='mm')
+    stl.mesh.apply_scale(1.0)
     stl.center(ROTATION_ORIGIN)
-    reference_voxel = Voxel.stl_to_voxel(cell_resolution, stl_units='mm')
-    thermal_voxel = copy.deepcopy(reference_voxel).to_thermal_voxel(material=material)
-    cross_sections = stl.create_theta_cross_section_pairs(stl, theta_resolution)
-    reference_voxel.subtract_cross_sections_from_voxel(cross_sections, theta_resolution)
+    reference_voxel = Voxel.stl_to_voxel(stl, cell_resolution)
+    reference_voxel = ThermalVoxel(reference_voxel, cell_resolution, material=material)
 
-    model = pin.buildModelFromUrdf(robot_filepath)
+    xlen, ylen, zlen = 100.0, 100.0, 200.0
+    xnum, ynum, znum = np.int32(np.array([xlen, ylen, zlen])/cell_resolution)
+    work_voxel = ThermalVoxel(data=np.ones([xnum,ynum,znum]), resolution=cell_resolution, material=material)
+
+    origin_plane = Plane.plane_from_point_norm(ROTATION_ORIGIN, np.array([1.0, 0.0, 0.0]))
+    stl.slice_into_theta_cross_sections(origin_plane, theta_resolution, output_dir=debug_dir, num_points=512)
+    cross_sections = stl.cross_sections
+
+    # Load the robot data
+    model = pin.buildModelFromUrdf(robot_file_path)
     data = model.createData()
 
     # Coordinate system for the workspace is fixed and is defined by ['insert github thingy...']
     q = pin.inverse_kinematics(WORKSPACE_NEUTRAL_CONFIG)
-    servo_command_list.extend(to_servo(path_plan_no_plate(q, pin.neutral(model), reference_voxel, thermal_voxel)))
+    servo_command_list.extend(to_servo(np.array(q)))
 
     curr_theta = 0
-    while reference_voxel - thermal_voxel >= tolerance:
+    while reference_voxel - work_voxel >= tolerance:
         curr_section = cross_sections[curr_theta]
-        q_list = path_plan_static_plate(q, curr_section, reference_voxel, thermal_voxel)
+        q_list = path_plan_static_plate(q, curr_section, reference_voxel, work_voxel)
         servo_command_list.extend(to_servo(q_list))
         q = q_list[-1]
-        curr_theta += theta_resolution
+        curr_theta += 1
+        servo_command_list.extend(np.array(theta_resolution))
+
+    stl_name = stl_file_path.split(os.sep)[-1].split('.')[0]
+    robot_name = robot_file_path.split(os.sep)[-1].split('.')[0]
 
     g_code = generator.servo_command_to_gcode(servo_command_list)
-    generator.save_gcode(g_code)
+    generator.save_gcode_file(os.path.join(output_dir, '%s_%s_%sdeg_gcode.txt' % (stl_name, robot_name, theta_resolution)), g_code)
 
 
 def to_servo(path_plan):
@@ -64,7 +87,14 @@ def to_servo(path_plan):
     :param np.ndarray path_plan: Array of robot joint commands for a given path.
     :return: List of servo inputs
     """
-    return []
+    servo_commands = []
+    for q in path_plan:
+        angle = q
+        if angle > np.pi:
+            angle -= 2 * np.pi
+        elif angle < -np.pi:
+            angle += 2 * np.pi
+        servo_commands.append((angle/np.pi)*500.0 + 1500.0)
 
 
 def path_plan_no_plate(q_target, q_start, reference_voxel, thermal_voxel):
@@ -104,20 +134,25 @@ if __name__ == "__main__":
     parser.add_argument('-workpiece_material', type=str, help='Filepath to the material description file')
     parser.add_argument('-wire_cutter_desc', type=str, help='Filepath to the file describing wire cutter properties')
     parser.add_argument('-out_dir', type=str, help='Filepath to the directory to save generated gcode in')
-    parser.add_argument('-rod_len', type=float, help='Length of the foam cutting end effector in mm')
-    parser.add_argument('-rod_radius', type=float, help='Radius of the foam cutting end effector in mm')
-    parser.add_argument('-cell_resolution', type=float, default=1.0, help='Edge lengh of a single voxel cell in mm')
-    parser.add_argument('-theta_resolution', type=float, default=4.0, help='Rotation resolution for cross sections in deg')
+    parser.add_argument('-cell_resolution', type=float, default=1.0, help='Edge length of a single voxel cell in mm')
+    parser.add_argument('-theta_resolution', type=float, default=10.0, help='Rotation resolution for cross sections in deg')
     parser.add_argument('-tolerance', type=float, default=1E-2, help='Tolerance to cut to')
+    parser.add_argument('--debug', action='store_true', help='If enabled will create a debug directory in -out_dir and save intermediate steps')
 
     args = vars(parser.parse_args())
 
-    ROTATION_ORIGIN = np.array([0, 0, 0])  # TODO: based on robot
-
     stl_file_path = args['stl']
+    robot_file_path = args['robot']
+    workpiece_material = args['workpiece_material']
+    wire_cutter_desc = args['wire_cutter_desc']
+    output_dir = args['out_dir']
     cell_resolution = args['cell_resolution']
     material = args['workpiece_material']
     theta_resolution = args['theta_resolution']
     robot_filepath = args['robot']
     tolerance = args['tolerance']
+    debug = args['debug']
+
+    main(stl_file_path, robot_file_path, workpiece_material, wire_cutter_desc, output_dir, cell_resolution,
+         theta_resolution, tolerance, debug)
 

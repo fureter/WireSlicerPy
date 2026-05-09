@@ -14,6 +14,13 @@ def get_r_and_c_from_num(num):
     return ret_val
 
 
+def cmd_to_byte_array(cmd):
+    packet = bytearray()
+    string_list = [cmd[i:i + 2] for i in range(0, len(cmd), 2)]
+    for command in string_list:
+        packet.append(int(command,16))
+    return packet
+
 def is_float(num):
     try:
         float(num)

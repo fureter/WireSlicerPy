@@ -183,7 +183,7 @@ class GCodeGenerator():
             prev_posy_2 = posy_2
 
         self._save_info_file(info_file_path, cut_time, max_x, max_y, min_x, min_y)
-        self._save_gcode_file(file_path, cmd_list)
+        save_gcode_file(file_path, cmd_list)
 
     def create_absolute_gcode(self, file_path, tool_path):
         """
@@ -216,7 +216,7 @@ class GCodeGenerator():
             cmd_list.append(enum.g1_linear_move(
                 self._wire_cutter.axis_def.format(movement[0], movement[1], movement[2], movement[3])))
 
-        self._save_gcode_file(file_path, cmd_list)
+        save_gcode_file(file_path, cmd_list)
 
     def create_constant_speed_movements(self, tool_path, cut_mode=CutLayout.CONSTANT_CUT):
         """
@@ -325,12 +325,6 @@ class GCodeGenerator():
         enum = command_library.GCodeCommands
         pass
 
-    def _save_gcode_file(self, file_path, cmd_list):
-
-        with open(file_path, 'wt') as gcode_file:
-            for cmd in cmd_list:
-                gcode_file.write(cmd + '\n')
-
     def _save_info_file(self, file_path, cut_time, max_x, max_y, min_x, min_y):
         with open(file_path, 'wt') as info_file:
             info_file.write('Estimated cut time: %s\n' % str(datetime.timedelta(seconds=cut_time)))
@@ -340,3 +334,22 @@ class GCodeGenerator():
             info_file.write('Min Y position: %smm\n' % min_y)
             info_file.write('Total X span: %smm\n' % (max_x - min_x))
             info_file.write('Total Y span: %smm\n' % (max_y - min_y))
+
+def servo_command_to_gcode(servo_command_list):
+    gcode_commands = list()
+    for movement in servo_command_list:
+        if movement.shape[0] == 1:
+            gcode_commands.append('%s %s R%s' % (command_library.GCodeCommands.PositionMode.set_positioning_mode(
+                (command_library.GCodeCommands.PositionMode).RELATIVE), command_library.GCodeCommands.FeedRate.set_feed_rate(100),
+            movement[0,0]))
+        else:
+            #TODO F is the movement time in ms in this case per the xArm1S ICD, need to figure out how to set this
+            command = 'M280 F10'
+            for servo in range(movement.shape[0]):
+                command + ' P%s S%s' % (servo+1, movement[servo])
+    return gcode_commands
+
+def save_gcode_file(file_path, cmd_list):
+    with open(file_path, 'wt') as gcode_file:
+        for cmd in cmd_list:
+            gcode_file.write(cmd + '\n')

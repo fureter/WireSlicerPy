@@ -358,7 +358,7 @@ class Plane(object):
         :param norm:
         :return:
         """
-        return Plane(x0=point['x'], y0=point['y'], z0=point['z'], a=norm[0], b=norm[1], c=norm[2])
+        return Plane(x0=point[0], y0=point[1], z0=point[2], a=norm[0], b=norm[1], c=norm[2])
 
     @staticmethod
     def plane_from_point_2_vec(point, vec1, vec2):
@@ -1200,15 +1200,15 @@ class GeometricFunctions(object):
         return norm_1/np.sqrt(norm_1**2), norm_2/np.sqrt(norm_2**2)
 
     @staticmethod
-    def plot_path(path, color, scatter=True, scatter_color=None, scatter_size=3):
+    def plot_path(path, color, axis1 = 'x', axis2='y', scatter=True, scatter_color=None, scatter_size=3):
         len_path = len(path)
 
         x = np.zeros(len_path)
         y = np.zeros(len_path)
 
         for i in range(0, len_path):
-            x[i] = path[i]['x']
-            y[i] = path[i]['y']
+            x[i] = path[i][axis1]
+            y[i] = path[i][axis2]
 
         if color is not None:
             plt.plot(x, y, color)
@@ -1241,6 +1241,17 @@ class GeometricFunctions(object):
         ani = animation.FuncAnimation(fig, update, frames=list(range(0, len(path))),
                                       init_func=init, blit=True)
         plt.show()
+
+    @staticmethod
+    def reorder_path_starting_at_bottom(path, axis='z'):
+        starting_point = 0
+        for ind in range(len(path)):
+            if path[ind][axis] < path[starting_point][axis]:
+                starting_point = ind
+        new_path = list()
+        new_path.extend(path[starting_point:])
+        new_path.extend(path[:starting_point])
+        return new_path
 
     @staticmethod
     def _transform_dim(item, dim):

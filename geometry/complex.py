@@ -395,9 +395,9 @@ class CrossSection(object):
                 ret_val.append((min_ind, min_ind_hole))
         return ret_val
 
-    def plot(self, color=None, show=True, scatter=False):
+    def plot(self, color=None, show=True, scatter=False, axis1='x', axis2='y'):
         logger = logging.getLogger(__name__)
-        prim.GeometricFunctions.plot_path(self.get_path(), color=color, scatter=scatter)
+        prim.GeometricFunctions.plot_path(self.get_path(), color=color, scatter=scatter, axis1=axis1, axis2=axis2)
         if self.holes is not None:
             for hole in self.get_path_hole():
                 prim.GeometricFunctions.plot_path(hole, color=color, scatter=scatter)
@@ -1007,6 +1007,18 @@ class STL():
         self._file_path = file_path
         self._setup(units=units)
 
+    def center(self, origin):
+        """
+        Center stl so that the point on the lower bounding box intersecting with the z-axis is at the specified origin.
+        """
+        z_lower = self.mesh.bounds[0][2]
+        z_offset = origin[2] - z_lower
+        x_center = (self.mesh.bounds[1][0] + self.mesh.bounds[0][0])/2.0
+        y_center = (self.mesh.bounds[1][1] + self.mesh.bounds[0][1])/2.0
+        x_offset = origin[0] - x_center
+        y_offset = origin[1] - y_center
+        self.mesh.apply_translation(np.array([x_offset, y_offset, z_offset]))
+
     def create_cross_section_pairs(self, wall_thickness, origin_plane, spacing, number_sections, output_dir=None,
                                    hollow_section_list=None, num_points=512):
         """
@@ -1094,6 +1106,68 @@ class STL():
                     pair.section2.holes = copy.deepcopy(pair.section1.holes)
                 else:
                     pair.section1.holes = copy.deepcopy(pair.section2.holes)
+
+
+    def slice_into_theta_cross_sections(self, origin_plane, theta_resolution, output_dir=None, num_points=512):
+        """
+        Slices the STL into `number_sections` with `spacing` separation normal to the `origin_plane`.
+
+        :param Plane origin_plane: Plane object defining the origin and the direction of the slices.
+        :param int number_sections: Number of cross sections to create from the stl.
+        :param float spacing: Relative spacing between each cross section in mm.
+        """
+        self.trimesh_cross_sections = list()
+        self.cross_sections = list()
+
+        if not self.mesh.is_watertight:
+            self.mesh.fill_holes()
+        for theta_ind in range(int(360.0 / theta_resolution)):
+            theta = np.deg2rad(theta_ind * theta_resolution)
+            dcm = np.array([[np.cos(theta), np.sin(theta), 0.0],
+                               [-np.sin(theta), np.cos(theta), 0.0],
+                               [0.0, 0.0, 1.0]])
+            normal =  dcm @ origin_plane.normal
+            origin = np.array(origin_plane.origin)
+            section = self.mesh.section(plane_origin=origin, plane_normal=normal)
+            self.trimesh_cross_sections.append(section)
+
+            points = list()
+            # Add the points from trimesh discrete path
+            for ind in range(0, len(section.discrete[0])):
+                points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], section.discrete[0][ind][2]))
+
+            path = PointManip.reorder_2d_cw(points, method=5)
+            # Normalize the path so that there are X number points uniform spacing from one another.
+            path = prim.GeometricFunctions.normalize_path_points(path, num_points=num_points)
+            # Remove any duplicate points that are memory equivalent, these points would get double transformed
+            # later down the line.
+            path = prim.GeometricFunctions.remove_duplicate_memory_from_path(path)
+            # Close the path so that the last point is the first point.
+            # path = prim.GeometricFunctions.close_path(path)
+            # Save off the transformed points as CrossSections
+
+            PointManip.Transform.rotate_dcm(path, dcm.T, origin_plane.origin)
+
+            new_path = []
+            for point in path:
+                if point['z'] > 0 and point['y'] > 0:
+                    new_path.append(point)
+
+            path = prim.GeometricFunctions.reorder_path_starting_at_bottom(new_path, axis='z')
+
+            cross_section = CrossSection(section_list=[prim.Path(path)])
+            if output_dir is not None:
+                plt.figure(figsize=(8, 4.5))
+                cross_section.plot(axis1='y', axis2='z')
+                plt.grid(True)
+                plt.axis('equal')
+                plt.savefig(os.path.join(output_dir, "cross_section_theta%s.png" % np.round(np.rad2deg(theta),1)))
+                plt.close()
+            self.cross_sections.append(cross_section)
+            self.logger.debug('section: %s', self.cross_sections[-1])
+            # Unlike when handling the planar wire cutting, we do not center the cross sections for this operation as
+            # as the STL was pre-centered on the rotation plate for cutting. Shifting the locations of the cross
+            # sections will ruin further operations.
 
     def slice_into_cross_sections(self, origin_plane, spacing, number_sections, output_dir=None, num_points=512):
         """
@@ -1863,3 +1937,30 @@ class WingSegment(object):
                     new_points.append(point)
             new_points = prim.GeometricFunctions.close_path(new_points)
             self.points = prim.GeometricFunctions.normalize_path_points(new_points, self.num_points)
+
+class Voxel(object):
+    def __init__(self, data_array, edge_length):
+        self.data = data_array
+        self.edge_length = edge_length
+
+
+    @classmethod
+    def stl_to_voxel(cls, stl, resolution):
+        voxel = tm.voxel.creation.voxelize(stl.mesh, pitch=resolution)
+        voxel.fill()
+        return cls(voxel.matrix, edge_length=resolution)
+
+    def to_trimesh(self):
+        voxel = tm.voxel.VoxelGrid(encoding=self.data)
+        return voxel
+
+
+
+class ThermalVoxel(Voxel):
+    def __init__(self, data, resolution, material):
+        super(ThermalVoxel, self).__init__(data, resolution)
+        self.material = material
+
+
+
+
