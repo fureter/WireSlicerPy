@@ -11,7 +11,7 @@
 Youtube playlist:
 https://www.youtube.com/watch?v=KfWDov1mHDg&list=PLoByfIhR8AFkBicSiMon9fOJ0aAK4qdLv&pp=sAgC
 
-##Limited Prototype Robot support via URDF and Pinocchio
+### Limited Prototype Robot support via URDF and Pinocchio
 - environment.yml  with required libraries for conda setup
 - Examples STLs and URDF in assets folder
 - Not all input arguments are currently supported
