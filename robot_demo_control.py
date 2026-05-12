@@ -1,3 +1,4 @@
+import argparse
 import time
 
 import serial
@@ -66,20 +67,36 @@ def parse_servo_command(line):
             position_list[curr_servo - 2] = position
     return servo_list, position_list
 
+
 def parse_stepper_command(line):
     splits = line.split(' ')
     for value in splits:
         if 'R' in value:
             return float(value[1:])
     return None
+
+
 if __name__ == '__main__':
-    gcode_file = r"rook_xArm1S_45.0deg_gcode.txt"
-    ser = serial.Serial('COM4', 9600)
-    ser2 = serial.Serial('COM8', 9600)
+    parser = argparse.ArgumentParser(
+        prog='RobotDemoController',
+        description='Runs g-code on an xArm1S and TMC2209 stepper driver.')
+    parser.add_argument('-gcode', type=str, help='Filepath to the desired gcode file to be executed')
+    parser.add_argument('-robot_comport', type=str, help='COMX port to send servo commands to')
+    parser.add_argument('-stepper_comport', type=str, help='COMX port to send stepper commands to')
+
+    args = vars(parser.parse_args())
+
+    gcode_file = args['gcode']
+    com_robot = args['robot_comport']
+    com_stepper = args['stepper_comport']
+
+    ser = serial.Serial(com_robot, 9600)
+    ser2 = serial.Serial(com_stepper, 9600)
     xArm1s = XArm1s(ser)
     stepper = Stepper(ser2)
+
     travel_for_full_percent = np.deg2rad(240)
-    constant_speed = np.pi/8
+    constant_speed = np.pi/10
     previous_position_list = np.zeros(xArm1s.num_servos)
 
     with open(gcode_file, 'r') as f:
