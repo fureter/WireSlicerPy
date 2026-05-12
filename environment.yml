@@ -13,15 +13,16 @@ dependencies:
   - pinocchio
   - qpsolvers
   - robot_descriptions
-  #- crocoddyl not on windows, uncomment when moving to wsl
+  - crocoddyl
   - setuptools=81
   - trimesh
   - pyglet<2
   - rtree
   - pip:
     - networkx
+    - shapely
     - pyserial
     - jsonpickle
     - git+https://github.com/meshcat-dev/meshcat-python.git
     - git+https://github.com/stephane-caron/meshcat-shapes.git
-    #- ompl Also not on windows
+    - ompl

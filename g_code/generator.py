@@ -339,15 +339,16 @@ def servo_command_to_gcode(servo_command_list):
     gcode_commands = list()
     for movement in servo_command_list:
         if movement.shape[0] == 1:
-            gcode_commands.append('%s %s R%s' % (command_library.GCodeCommands.PositionMode.set_positioning_mode(
-                (command_library.GCodeCommands.PositionMode).RELATIVE), command_library.GCodeCommands.FeedRate.set_feed_rate(100),
-            movement[0,0]))
+            gcode_commands.append('G1 %s R%s' % (command_library.GCodeCommands.FeedRate.set_feed_rate(100),
+                                                 movement[0]))
         else:
-            #TODO F is the movement time in ms in this case per the xArm1S ICD, need to figure out how to set this
-            command = 'M280 F10'
+            command = 'M280'
             for servo in range(movement.shape[0]):
-                command + ' P%s S%s' % (servo+1, movement[servo])
+                # Angle commands are for servos 6-1 instead of 1-6
+                command += ' P%s S%s' % (7-(servo+1), movement[servo])
+            gcode_commands.append(command)
     return gcode_commands
+
 
 def save_gcode_file(file_path, cmd_list):
     with open(file_path, 'wt') as gcode_file:

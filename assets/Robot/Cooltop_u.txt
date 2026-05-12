@@ -1,0 +1,4 @@
+Resistance=6.853
+Current=2.0
+Radius=0.000225
+Length=0.16

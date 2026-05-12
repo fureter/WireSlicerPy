@@ -107,7 +107,6 @@ def setup_gui(main_window):
         main_window.project_manager.get_recent_projects()
     )
 
-
 if __name__ == '__main__':
     # setup logger and logger handlers
     setup()

@@ -1050,9 +1050,6 @@ class GeometricFunctions(object):
         original_curve = copy.deepcopy(path)
         for ind in range(0, divisions):
             path = GeometricFunctions.parallel_curve(path, offset_scale / divisions, dir)
-        #     num_intersections = GeometricFunctions.number_of_intersections_in_path(path)
-        #     logger.debug('Found %s intersections in path', num_intersections)
-        #
 
         path = GeometricFunctions.clean_intersections(path, original_curve, offset_scale)
 
@@ -1219,6 +1216,7 @@ class GeometricFunctions(object):
                 plt.scatter(x, y, c=scatter_color, s=scatter_size)
             else:
                 plt.scatter(x, y, s=scatter_size)
+                plt.scatter(x[0], y[0], s=scatter_size, marker='x')
 
     @staticmethod
     def animate_path(path):

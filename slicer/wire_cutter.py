@@ -111,4 +111,19 @@ class TMC2209(object):
         return crc
 
 
+class CuttingTool(object):
+    def __init__(self, file_path):
+        self.file_path = file_path
+
+        with open(file_path, 'r') as f:
+            for line in f:
+                split = line.split('=')
+                if 'Resistance' in split[0]:
+                    self.rho = float(split[1])
+                elif 'Current' in split[0]:
+                    self.current = float(split[1])
+                elif 'Radius' in split[0]:
+                    self.radius = float(split[1])
+                elif 'Length' in split[0]:
+                    self.length = float(split[1])
 

@@ -1,0 +1,2 @@
+ThermalConductance=0.034
+MeltTemp=160

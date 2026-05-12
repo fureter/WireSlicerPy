@@ -1108,7 +1108,7 @@ class STL():
                     pair.section1.holes = copy.deepcopy(pair.section2.holes)
 
 
-    def slice_into_theta_cross_sections(self, origin_plane, theta_resolution, output_dir=None, num_points=512):
+    def slice_into_theta_cross_sections(self, origin_plane, theta_resolution, base_height, output_dir=None, num_points=64):
         """
         Slices the STL into `number_sections` with `spacing` separation normal to the `origin_plane`.
 
@@ -1116,53 +1116,66 @@ class STL():
         :param int number_sections: Number of cross sections to create from the stl.
         :param float spacing: Relative spacing between each cross section in mm.
         """
+        assert 360 % theta_resolution == 0, 'Error: 360 must be divisible by Theta Resolution '
         self.trimesh_cross_sections = list()
         self.cross_sections = list()
 
         if not self.mesh.is_watertight:
             self.mesh.fill_holes()
+
+        tm.repair.fix_inversion(self.mesh)
+
+        origin = np.array(origin_plane.origin)
         for theta_ind in range(int(360.0 / theta_resolution)):
-            theta = np.deg2rad(theta_ind * theta_resolution)
-            dcm = np.array([[np.cos(theta), np.sin(theta), 0.0],
-                               [-np.sin(theta), np.cos(theta), 0.0],
+            theta = np.deg2rad(theta_ind * theta_resolution)-np.pi
+            dcm = np.array([[np.cos(theta), -np.sin(theta), 0.0],
+                               [np.sin(theta), np.cos(theta), 0.0],
                                [0.0, 0.0, 1.0]])
-            normal =  dcm @ origin_plane.normal
-            origin = np.array(origin_plane.origin)
-            section = self.mesh.section(plane_origin=origin, plane_normal=normal)
-            self.trimesh_cross_sections.append(section)
+            normal = dcm @ origin_plane.normal
+            outline = self.mesh.projected(normal=normal, origin=origin, ignore_sign=False)#self.mesh.section(plane_origin=origin, plane_normal=normal)
 
             points = list()
             # Add the points from trimesh discrete path
-            for ind in range(0, len(section.discrete[0])):
-                points.append(prim.Point(section.discrete[0][ind][0], section.discrete[0][ind][1], section.discrete[0][ind][2]))
+            for ind in range(0, len(outline.discrete[0])):
+                points.append(prim.Point(origin[0], outline.discrete[0][ind][1], -outline.discrete[0][ind][0]))
 
-            path = PointManip.reorder_2d_cw(points, method=5)
-            # Normalize the path so that there are X number points uniform spacing from one another.
-            path = prim.GeometricFunctions.normalize_path_points(path, num_points=num_points)
-            # Remove any duplicate points that are memory equivalent, these points would get double transformed
-            # later down the line.
-            path = prim.GeometricFunctions.remove_duplicate_memory_from_path(path)
-            # Close the path so that the last point is the first point.
-            # path = prim.GeometricFunctions.close_path(path)
-            # Save off the transformed points as CrossSections
+            new_points = list()
+            for ind in range(len(points)-1):
+                if np.sign(points[ind][1]) != np.sign(points[ind+1][1]):
+                    new_points.append(points[ind])
+                    new_points.append(prim.Point(points[ind][0], 0, points[ind][2]))
+                else:
+                    new_points.append(points[ind])
+            points = prim.GeometricFunctions.reorder_path_starting_at_bottom(new_points)
 
-            PointManip.Transform.rotate_dcm(path, dcm.T, origin_plane.origin)
+            # Outside of this theta range Trimesh inverts the projection. Un-invert and reorder points to match other
+            # projections
+            if theta < -np.pi/2 or theta > np.pi/2:
+                tmp_points = list()
+                for point in points:
+                    tmp_points.append(prim.Point(point[0], -point[1], -point[2]))
+                points = prim.GeometricFunctions.reorder_path_starting_at_bottom(tmp_points)
 
             new_path = []
-            for point in path:
-                if point['z'] > 0 and point['y'] > 0:
+            for point in points:
+                if point['z'] > base_height and point['y'] >= 0:
                     new_path.append(point)
 
-            path = prim.GeometricFunctions.reorder_path_starting_at_bottom(new_path, axis='z')
-
+            # Normalize the path so that there are X number points uniform spacing from one another.
+            path = prim.GeometricFunctions.normalize_path_points(new_path, num_points=num_points)
             cross_section = CrossSection(section_list=[prim.Path(path)])
             if output_dir is not None:
                 plt.figure(figsize=(8, 4.5))
-                cross_section.plot(axis1='y', axis2='z')
+                cross_section.plot(axis1='y', axis2='z', scatter=True)
                 plt.grid(True)
                 plt.axis('equal')
                 plt.savefig(os.path.join(output_dir, "cross_section_theta%s.png" % np.round(np.rad2deg(theta),1)))
                 plt.close()
+
+            points = list()
+            for ind in range(len(path)):
+                points.append(prim.Point(path[ind][0] - path[ind][1], 0.0,  path[ind][2]+origin[2]))
+            cross_section = CrossSection(section_list=[prim.Path(points)])
             self.cross_sections.append(cross_section)
             self.logger.debug('section: %s', self.cross_sections[-1])
             # Unlike when handling the planar wire cutting, we do not center the cross sections for this operation as
